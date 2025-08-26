@@ -210,7 +210,7 @@ The following example uses a pre-built agent image from `kagenti-operator` repos
 Create research-agent.yaml:
 
 ```yaml
-apiVersion: beeai.dev/v1
+apiVersion: beeai.beeai.dev/v1
 kind: Agent
 metadata:
   name: existing-research-agent
