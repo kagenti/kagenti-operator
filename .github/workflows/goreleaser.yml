@@ -63,7 +63,7 @@ jobs:
         echo "Chart version: ${chartVersion}" 
         helm push "./${chartPackageName}" oci://${{ env.REGISTRY }}/${{ env.REPO }}
 
-    - name: Package and push platoform operator chart
+    - name: Package and push platform operator chart
       run: |
         chartVersion=$(echo ${{ github.ref_name }} | cut -c 2-)
         chartPackageName="kagenti-platform-operator-chart-${chartVersion}.tgz"
@@ -71,6 +71,14 @@ jobs:
         helm package . --destination . --version ${chartVersion} --app-version ${chartVersion}
         ls -l # List files to check the generated filename
         echo "Chart version: ${chartVersion}" 
-        helm push "./${chartPackageName}" oci://${{ env.REGISTRY }}/${{ env.REPO }}        
-    
-     
+        helm push "./${chartPackageName}" oci://${{ env.REGISTRY }}/${{ env.REPO }}
+        
+    - name: Update File
+      run: |
+        echo "${{ github.ref_name }}" > latest_release.txt
+
+    - name: Commit and Push Changes
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "Update latest release information"
+        file_pattern: "latest_release.txt" 
