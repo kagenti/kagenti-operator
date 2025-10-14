@@ -274,102 +274,7 @@ func (r *AgentReconciler) getContainerImage(ctx context.Context, agent *agentv1a
 	}
 	return "", nil
 }
-func (r *AgentReconciler) addKeycloakRegistrationClient(agent *agentv1alpha1.Agent, podTemplateSpec *corev1.PodTemplateSpec) error {
-	if len(agent.Spec.PodTemplateSpec.Spec.Containers) == 0 {
-		return fmt.Errorf("no containers defined in PodTemplateSpec")
-	}
 
-	podTemplateSpec.Spec.InitContainers = append(podTemplateSpec.Spec.InitContainers, corev1.Container{
-		Name:            "kagenti-client-registration",
-		Image:           "ghcr.io/kagenti/kagenti/client-registration:latest",
-		ImagePullPolicy: corev1.PullAlways,
-		Resources: func() corev1.ResourceRequirements {
-			if agent.Spec.PodTemplateSpec.Spec.Resources != nil {
-				return *agent.Spec.PodTemplateSpec.Spec.Resources
-			}
-			return corev1.ResourceRequirements{}
-		}(),
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      "cache",
-				MountPath: "/app/.cache",
-			},
-			{
-				Name:      "shared-data",
-				MountPath: "/shared",
-			},
-			{
-				Name:      "marvin",
-				MountPath: "/.marvin",
-			},
-		},
-		Env: []corev1.EnvVar{
-			{
-				Name: "KEYCLOAK_URL",
-				ValueFrom: &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "environments",
-						},
-						Key:      "KEYCLOAK_URL",
-						Optional: ptr.To(true),
-					},
-				},
-			},
-			{
-				Name: "KEYCLOAK_REALM",
-				ValueFrom: &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "environments",
-						},
-						Key: "KEYCLOAK_REALM",
-					},
-				},
-			},
-			{
-				Name: "KEYCLOAK_ADMIN_USERNAME",
-				ValueFrom: &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "environments",
-						},
-						Key: "KEYCLOAK_ADMIN_USERNAME",
-					},
-				},
-			},
-			{
-				Name: "KEYCLOAK_ADMIN_PASSWORD",
-				ValueFrom: &corev1.EnvVarSource{
-					ConfigMapKeyRef: &corev1.ConfigMapKeySelector{
-						LocalObjectReference: corev1.LocalObjectReference{
-							Name: "environments",
-						},
-						Key: "KEYCLOAK_ADMIN_PASSWORD",
-					},
-				},
-			},
-			{
-				Name:  "CLIENT_NAME",
-				Value: agent.Name,
-			},
-			{
-				Name:  "CLIENT_ID",
-				Value: "spiffe://localtest.me/sa/" + agent.Name,
-			},
-			{
-				Name:  "NAMESPACE",
-				Value: agent.Namespace,
-			},
-			{
-				Name:  "UV_CACHE_DIR",
-				Value: "/app/.cache/uv",
-			},
-		},
-	})
-
-	return nil
-}
 func (r *AgentReconciler) createDeploymentForAgent(ctx context.Context, agent *agentv1alpha1.Agent) (*appsv1.Deployment, error) {
 	if len(agent.Spec.PodTemplateSpec.Spec.Containers) == 0 {
 		return nil, fmt.Errorf("no containers defined in PodTemplateSpec")
@@ -447,18 +352,6 @@ func (r *AgentReconciler) createDeploymentForAgent(ctx context.Context, agent *a
 			}
 		}
 		podTemplateSpec.Spec.Containers[inx].Ports = containerPorts
-	}
-
-	if podTemplateSpec.Spec.InitContainers == nil {
-		podTemplateSpec.Spec.InitContainers = []corev1.Container{}
-	}
-
-	if r.EnableClientRegistration {
-		err := r.addKeycloakRegistrationClient(agent, podTemplateSpec)
-		if err != nil {
-			logger.Error(err, "Unable to add Keycloak client registration init container")
-			return nil, err
-		}
 	}
 
 	image, err := r.getContainerImage(ctx, agent)

@@ -293,6 +293,18 @@ func (d *KubernetesDeployer) createDeployment(ctx context.Context, component *pl
 			ServiceAccountName: component.Name,
 			Containers: []corev1.Container{
 				{
+					Name:            component.Name,
+					Image:           image,
+					ImagePullPolicy: corev1.PullPolicy(imagePullPolicy),
+					Resources:       component.Spec.Deployer.Kubernetes.Resources,
+					Env:             mainEnvs,
+					Ports:           containerPorts,
+					VolumeMounts: append(
+						component.Spec.Deployer.Kubernetes.VolumeMounts,
+						sharedMount,
+					),
+				},
+				{
 					Name:  "spiffe-helper",
 					Image: "ghcr.io/spiffe/spiffe-helper:nightly",
 					Command: []string{
@@ -385,18 +397,6 @@ func (d *KubernetesDeployer) createDeployment(ctx context.Context, component *pl
 						},
 						sharedMount,
 					},
-				},
-				{
-					Name:            component.Name,
-					Image:           image,
-					ImagePullPolicy: corev1.PullPolicy(imagePullPolicy),
-					Resources:       component.Spec.Deployer.Kubernetes.Resources,
-					Env:             mainEnvs,
-					Ports:           containerPorts,
-					VolumeMounts: append(
-						component.Spec.Deployer.Kubernetes.VolumeMounts,
-						sharedMount,
-					),
 				},
 			},
 			TerminationGracePeriodSeconds: &gracePeriodSeconds,
