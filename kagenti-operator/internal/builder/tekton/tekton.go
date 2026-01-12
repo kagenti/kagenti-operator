@@ -25,6 +25,8 @@ import (
 	"github.com/go-logr/logr"
 	agentv1alpha1 "github.com/kagenti/operator/api/v1alpha1"
 	"github.com/kagenti/operator/internal/builder"
+	"github.com/kagenti/operator/internal/distribution"
+	"github.com/tektoncd/pipeline/pkg/apis/pipeline/pod"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -44,15 +47,17 @@ type TektonBuilder struct {
 	Log              logr.Logger
 	PipelineComposer *PipelineComposer
 	WorkspaceManager *WorkspaceManager
+	Distribution     distribution.Type
 }
 
-func NewTektonBuilder(client client.Client, log logr.Logger, scheme *runtime.Scheme, composer *PipelineComposer, workspaceMgr *WorkspaceManager) *TektonBuilder {
+func NewTektonBuilder(client client.Client, log logr.Logger, scheme *runtime.Scheme, composer *PipelineComposer, workspaceMgr *WorkspaceManager, dist distribution.Type) *TektonBuilder {
 	return &TektonBuilder{
 		Client:           client,
 		Scheme:           scheme,
 		Log:              log,
 		PipelineComposer: composer,
 		WorkspaceManager: workspaceMgr,
+		Distribution:     dist,
 	}
 }
 func (b *TektonBuilder) Build(ctx context.Context, agentBuild *agentv1alpha1.AgentBuild) error {
@@ -192,6 +197,9 @@ func (b *TektonBuilder) createPipelineRun(ctx context.Context, agentBuild *agent
 	} else {
 		fmt.Println("PipelineSpec:::" + string(pp))
 	}
+	// Build security context for task pods
+	podSecurityContext := b.buildPodSecurityContext()
+
 	pipelineRun := &tektonv1.PipelineRun{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      pipelineRunName,
@@ -205,6 +213,11 @@ func (b *TektonBuilder) createPipelineRun(ctx context.Context, agentBuild *agent
 			PipelineSpec: pipelineSpec,
 			Workspaces:   b.WorkspaceManager.GetWorkspaceBindings(agentBuild),
 			Params:       pipelineParams,
+			TaskRunTemplate: tektonv1.PipelineTaskRunTemplate{
+				PodTemplate: &pod.Template{
+					SecurityContext: podSecurityContext,
+				},
+			},
 		},
 	}
 
@@ -386,6 +399,27 @@ func (b *TektonBuilder) extractBuiltImage(pipelineRun *tektonv1.PipelineRun) str
 	}
 
 	return ""
+}
+
+// buildPodSecurityContext creates a security context appropriate for the Kubernetes distribution.
+// On OpenShift, it omits runAsUser to allow the SCC admission controller to assign a UID
+// from the namespace's allocated range. On vanilla Kubernetes, it sets runAsUser: 1000.
+func (b *TektonBuilder) buildPodSecurityContext() *corev1.PodSecurityContext {
+	podSecCtx := &corev1.PodSecurityContext{
+		RunAsNonRoot: ptr.To(true),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+	}
+
+	// On OpenShift, omit runAsUser and fsGroup to let SCC admission controller
+	// assign appropriate values from the namespace's allocated range
+	if b.Distribution != distribution.OpenShift {
+		podSecCtx.RunAsUser = ptr.To(int64(1000))
+		podSecCtx.FSGroup = ptr.To(int64(1000))
+	}
+
+	return podSecCtx
 }
 
 func (b *TektonBuilder) GetStatus(ctx context.Context, agent *agentv1alpha1.AgentBuild) (agentv1alpha1.AgentBuildStatus, error) {

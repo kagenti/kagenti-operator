@@ -234,8 +234,9 @@ func main() {
 			mgr.GetClient(),
 			mgr.GetLogger(),
 			mgr.GetScheme(),
-			tekton.NewPipelineComposer(mgr.GetClient(), mgr.GetLogger()),
+			tekton.NewPipelineComposer(mgr.GetClient(), mgr.GetLogger(), distType),
 			tekton.NewWorkspaceManager(mgr.GetClient(), mgr.GetScheme(), mgr.GetLogger()),
+			distType,
 		),
 		Recorder: mgr.GetEventRecorderFor("agentbuild-controller"),
 	}).SetupWithManager(mgr); err != nil {

@@ -23,11 +23,13 @@ import (
 
 	"github.com/go-logr/logr"
 	agentv1alpha1 "github.com/kagenti/operator/api/v1alpha1"
+	"github.com/kagenti/operator/internal/distribution"
 	tektonv1 "github.com/tektoncd/pipeline/pkg/apis/pipeline/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
@@ -51,14 +53,16 @@ type StepDefinition struct {
 
 // PipelineComposer handles composition of pipelines from individual steps
 type PipelineComposer struct {
-	client client.Client
-	Logger logr.Logger
+	client       client.Client
+	Logger       logr.Logger
+	Distribution distribution.Type
 }
 
-func NewPipelineComposer(c client.Client, log logr.Logger) *PipelineComposer {
+func NewPipelineComposer(c client.Client, log logr.Logger, dist distribution.Type) *PipelineComposer {
 	return &PipelineComposer{
-		client: c,
-		Logger: log,
+		client:       c,
+		Logger:       log,
+		Distribution: dist,
 	}
 }
 
@@ -218,13 +222,16 @@ func (pc *PipelineComposer) createPipelineTasks(steps map[string]*StepDefinition
 		// Convert parameters to Tekton Params (for passing to task)
 		taskParams := pc.convertToTektonParams(stepDefinition.Parameters)
 
+		// Sanitize step security contexts to ensure OpenShift compatibility
+		sanitizedSteps := pc.sanitizeSteps(stepDefinition.TaskSpec.Steps)
+
 		// Create task with embedded spec using EmbeddedTask
 		task := tektonv1.PipelineTask{
 			Name: stepDefinition.Name,
 			TaskSpec: &tektonv1.EmbeddedTask{
 				TaskSpec: tektonv1.TaskSpec{
 					Params:     pc.getTaskParams(stepDefinition.Parameters),
-					Steps:      stepDefinition.TaskSpec.Steps,
+					Steps:      sanitizedSteps,
 					Workspaces: stepDefinition.TaskSpec.Workspaces,
 					Volumes:    stepDefinition.TaskSpec.Volumes,
 					Results:    stepDefinition.TaskSpec.Results,
@@ -445,4 +452,44 @@ func (pc *PipelineComposer) collectPipelineParams(agentBuild *agentv1alpha1.Agen
 	}
 
 	return params
+}
+
+// sanitizeSteps removes or adjusts security contexts from task steps to ensure
+// compatibility with OpenShift's restricted SCC. This removes SETUID/SETGID
+// capabilities and explicit runAsUser settings that conflict with OpenShift's
+// namespace-allocated UID ranges.
+func (pc *PipelineComposer) sanitizeSteps(steps []tektonv1.Step) []tektonv1.Step {
+	sanitizedSteps := make([]tektonv1.Step, len(steps))
+	for i, step := range steps {
+		sanitizedSteps[i] = step
+
+		// Build a clean security context that's compatible with OpenShift's restricted SCC
+		sanitizedSteps[i].SecurityContext = pc.buildStepSecurityContext()
+	}
+	return sanitizedSteps
+}
+
+// buildStepSecurityContext creates a security context for task steps that is
+// compatible with OpenShift's restricted SCC. It removes SETUID/SETGID capabilities
+// and omits runAsUser on OpenShift to allow the SCC to assign a UID.
+func (pc *PipelineComposer) buildStepSecurityContext() *corev1.SecurityContext {
+	secCtx := &corev1.SecurityContext{
+		AllowPrivilegeEscalation: ptr.To(false),
+		Privileged:               ptr.To(false),
+		RunAsNonRoot:             ptr.To(true),
+		SeccompProfile: &corev1.SeccompProfile{
+			Type: corev1.SeccompProfileTypeRuntimeDefault,
+		},
+		Capabilities: &corev1.Capabilities{
+			Drop: []corev1.Capability{"ALL"},
+		},
+	}
+
+	// On vanilla Kubernetes, set explicit runAsUser
+	// On OpenShift, omit to let SCC assign from namespace range
+	if pc.Distribution != distribution.OpenShift {
+		secCtx.RunAsUser = ptr.To(int64(1000))
+	}
+
+	return secCtx
 }
