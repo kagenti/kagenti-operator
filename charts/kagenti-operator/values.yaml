@@ -84,6 +84,14 @@ certmanager:
 networkPolicy:
   enable: false
 
+# [TEKTON]: OpenShift / Istio ambient mode - github-clone-step behavior
+# When true (or when auto-detected on OpenShift), the github-clone-step ConfigMap
+# uses: HOME=/tekton/home (git-init can't write to / on OpenShift) and a 30s
+# delay for Istio ambient ztunnel to register the workload before DNS.
+# When false or unset on non-OpenShift, uses the standard task spec.
+# Auto-detection: if route.openshift.io/v1 exists in the cluster, OpenShift is assumed.
+openshift: false
+
 # [SIGNATURE VERIFICATION]: A2A agent card signature verification via SPIRE x5c
 signatureVerification:
   # Enable signature verification for agent cards

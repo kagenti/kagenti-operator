@@ -60,3 +60,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     $hasValidating = true }}{{- end }}
 {{- end }}
 {{ $hasValidating }}}}{{- end }}
+
+{{- define "tekton.isOpenShift" -}}
+{{- if or (.Values.openshift | default false) (.Capabilities.APIVersions.Has "route.openshift.io/v1") -}}
+true
+{{- else -}}
+false
+{{- end -}}
+{{- end -}}

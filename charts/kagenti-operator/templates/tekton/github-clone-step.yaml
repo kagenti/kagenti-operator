@@ -22,6 +22,19 @@ data:
     steps:
       - name: git-clone
         image: ghcr.io/tektoncd/github.com/tektoncd/pipeline/cmd/git-init:latest
+        {{- if eq (include "tekton.isOpenShift" . | trim) "true" }}
+        env:
+          - name: HOME
+            value: /tekton/home
+        script: |
+          #!/bin/sh
+          # Wait for Istio ambient mesh ztunnel to register this workload.
+          # Without this delay, DNS queries fail because ztunnel times out
+          # waiting for workload info from istiod (xds).
+          echo "Waiting 30s for Istio ambient mesh to register this workload..."
+          sleep 30
+          /ko-app/git-init -url https://$(params.repo-url) -revision $(params.revision) -path /workspace/source
+        {{- else }}
         command:
           - /ko-app/git-init
         args:
@@ -31,6 +44,7 @@ data:
           - $(params.revision)
           - -path
           - /workspace/source
+        {{- end }}
       - name: list-dir
         image: public.ecr.aws/docker/library/alpine:latest
         workingDir: $(workspaces.source.path) 
