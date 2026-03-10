@@ -24,7 +24,7 @@ jobs:
         with:
           go-version-file: kagenti-operator/go.mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v1.64.8
           working-directory: kagenti-operator
