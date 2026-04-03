@@ -38,7 +38,9 @@ import (
 // Well-known namespace resources (same contract as kagenti-webhook injector).
 const (
 	authbridgeConfigConfigMap = "authbridge-config"
-	keycloakAdminSecret       = "keycloak-admin-secret"
+	// operatorConfigConfigMap is the centralized config in the operator namespace (kagenti-system)
+	operatorConfigConfigMap = "kagenti-operator-config"
+	keycloakAdminSecret     = "keycloak-admin-secret"
 
 	// LabelClientRegistrationInject: when not "true", the operator registers the OAuth client and sets
 	// AnnotationKeycloakClientSecretName. Value "true" opts the workload into the legacy webhook
@@ -59,6 +61,10 @@ type ClientRegistrationReconciler struct {
 	// are not in the manager's ConfigMap cache (see cmd/main.go cache.ByObject for ConfigMap).
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
+
+	// OperatorNamespace is the namespace where the operator is running (e.g., "kagenti-system").
+	// Used to read centralized kagenti-operator-config ConfigMap.
+	OperatorNamespace string
 
 	SpireTrustDomain string
 	// KeycloakAdminTokenCache caches admin password-grant tokens by Keycloak URL and credentials to
@@ -153,13 +159,14 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	ns := owner.GetNamespace()
 
-	ab, err := readAuthbridgeConfigMap(ctx, r.uncachedReader(), ns)
+	ab, err := readAuthbridgeConfigMap(ctx, r.uncachedReader(), r.OperatorNamespace, ns)
 	if err != nil {
-		logger.Error(err, "read authbridge-config")
+		logger.Error(err, "read authbridge-config or kagenti-operator-config")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	if ab.KeycloakURL == "" || ab.KeycloakRealm == "" {
-		logger.Info("waiting for KEYCLOAK_URL/KEYCLOAK_REALM in authbridge-config", "namespace", ns)
+		logger.Info("waiting for KEYCLOAK_URL/KEYCLOAK_REALM in kagenti-operator-config or authbridge-config",
+			"operatorNamespace", r.OperatorNamespace, "workloadNamespace", ns)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
@@ -296,9 +303,37 @@ type authbridgeConfig struct {
 	KeycloakAudienceScopeEnabled string
 }
 
-func readAuthbridgeConfigMap(ctx context.Context, c client.Reader, namespace string) (authbridgeConfig, error) {
+// readAuthbridgeConfigMap reads Keycloak configuration from:
+// 1. First priority: operatorNamespace/kagenti-operator-config (centralized config)
+// 2. Fallback: workloadNamespace/authbridge-config (per-namespace config for backward compatibility)
+//
+// The centralized config is preferred for waypoint mode where agent pods don't need the ConfigMap.
+// Per-namespace config is still supported for sidecar mode and backward compatibility.
+func readAuthbridgeConfigMap(ctx context.Context, c client.Reader, operatorNamespace, workloadNamespace string) (authbridgeConfig, error) {
+	logger := log.FromContext(ctx)
+
+	// Try centralized operator config first (preferred for waypoint mode)
+	if operatorNamespace != "" {
+		cm := &corev1.ConfigMap{}
+		err := c.Get(ctx, types.NamespacedName{Namespace: operatorNamespace, Name: operatorConfigConfigMap}, cm)
+		if err == nil && cm.Data != nil {
+			config := extractAuthbridgeConfig(cm.Data)
+			// Only use operator config if it has the required fields
+			if config.KeycloakURL != "" && config.KeycloakRealm != "" {
+				logger.V(1).Info("using centralized operator config",
+					"configMap", operatorNamespace+"/"+operatorConfigConfigMap)
+				return config, nil
+			}
+		}
+		// If operator config doesn't exist or is incomplete, fall back to namespace config
+		if err != nil && !apierrors.IsNotFound(err) {
+			return authbridgeConfig{}, err
+		}
+	}
+
+	// Fall back to per-namespace authbridge-config (backward compatibility)
 	cm := &corev1.ConfigMap{}
-	err := c.Get(ctx, types.NamespacedName{Namespace: namespace, Name: authbridgeConfigConfigMap}, cm)
+	err := c.Get(ctx, types.NamespacedName{Namespace: workloadNamespace, Name: authbridgeConfigConfigMap}, cm)
 	if apierrors.IsNotFound(err) {
 		return authbridgeConfig{}, nil
 	}
@@ -308,16 +343,22 @@ func readAuthbridgeConfigMap(ctx context.Context, c client.Reader, namespace str
 	if cm.Data == nil {
 		return authbridgeConfig{}, nil
 	}
+	logger.V(1).Info("using per-namespace authbridge config (fallback)",
+		"configMap", workloadNamespace+"/"+authbridgeConfigConfigMap)
+	return extractAuthbridgeConfig(cm.Data), nil
+}
+
+func extractAuthbridgeConfig(data map[string]string) authbridgeConfig {
 	return authbridgeConfig{
-		KeycloakURL:                  cm.Data["KEYCLOAK_URL"],
-		KeycloakRealm:                cm.Data["KEYCLOAK_REALM"],
-		SpireEnabled:                 cm.Data["SPIRE_ENABLED"],
-		ClientAuthType:               cm.Data["CLIENT_AUTH_TYPE"],
-		SpiffeIDPAlias:               cm.Data["SPIFFE_IDP_ALIAS"],
-		KeycloakTokenExchangeEnabled: cm.Data["KEYCLOAK_TOKEN_EXCHANGE_ENABLED"],
-		PlatformClientIDs:            cm.Data["PLATFORM_CLIENT_IDS"],
-		KeycloakAudienceScopeEnabled: cm.Data["KEYCLOAK_AUDIENCE_SCOPE_ENABLED"],
-	}, nil
+		KeycloakURL:                  data["KEYCLOAK_URL"],
+		KeycloakRealm:                data["KEYCLOAK_REALM"],
+		SpireEnabled:                 data["SPIRE_ENABLED"],
+		ClientAuthType:               data["CLIENT_AUTH_TYPE"],
+		SpiffeIDPAlias:               data["SPIFFE_IDP_ALIAS"],
+		KeycloakTokenExchangeEnabled: data["KEYCLOAK_TOKEN_EXCHANGE_ENABLED"],
+		PlatformClientIDs:            data["PLATFORM_CLIENT_IDS"],
+		KeycloakAudienceScopeEnabled: data["KEYCLOAK_AUDIENCE_SCOPE_ENABLED"],
+	}
 }
 
 func parsePlatformClientIDs(raw string) []string {

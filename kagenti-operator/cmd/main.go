@@ -48,6 +48,7 @@ import (
 	"github.com/kagenti/operator/internal/signature"
 	"github.com/kagenti/operator/internal/tekton"
 	webhookv1alpha1 "github.com/kagenti/operator/internal/webhook/v1alpha1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -60,6 +61,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(agentv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(tekton.AddToScheme(scheme))
+	utilruntime.Must(gwapiv1.Install(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -78,7 +80,9 @@ func main() {
 	var signatureAuditMode bool
 	var enforceNetworkPolicies bool
 	var enableOperatorClientRegistration bool
+	var enableWaypointProvisioning bool
 
+	var operatorNamespace string
 	var spireTrustDomain string
 	var spireTrustBundleConfigMapName string
 	var spireTrustBundleConfigMapNS string
@@ -86,6 +90,8 @@ func main() {
 	var spireTrustBundleRefreshInterval time.Duration
 	var svidExpiryGracePeriod time.Duration
 
+	flag.StringVar(&operatorNamespace, "operator-namespace", os.Getenv("POD_NAMESPACE"),
+		"Namespace where the operator is running (default: POD_NAMESPACE env var, fallback: 'kagenti-system')")
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -112,6 +118,8 @@ func main() {
 	flag.BoolVar(&enableOperatorClientRegistration, "enable-operator-client-registration", false,
 		"Reconcile Keycloak client registration for agent/tool workloads unless "+
 			"kagenti.io/client-registration-inject=true (legacy sidecar)")
+	flag.BoolVar(&enableWaypointProvisioning, "enable-waypoint-provisioning", true,
+		"Automatically provision Istio waypoint gateways for namespaces with Kagenti workloads")
 
 	flag.StringVar(&spireTrustDomain, "spire-trust-domain", "",
 		"SPIRE trust domain for identity binding (e.g. 'example.org')")
@@ -133,6 +141,12 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	// Default operator namespace if not set
+	if operatorNamespace == "" {
+		operatorNamespace = "kagenti-system"
+		setupLog.Info("operator-namespace not set, using default", "namespace", operatorNamespace)
+	}
 
 	// Mitigate CVE-2023-44487 (HTTP/2 Rapid Reset).
 	disableHTTP2 := func(c *tls.Config) {
@@ -201,7 +215,10 @@ func main() {
 		Scheme:  scheme,
 		Metrics: metricsServerOptions,
 		Cache: cache.Options{
-			DefaultNamespaces: getNamespacesToWatch(),
+			// Note: DefaultNamespaces is intentionally not set (removed getNamespacesToWatch()).
+			// When not set, the cache defaults to cluster-wide for all resources except those
+			// explicitly scoped in ByObject below.
+			//
 			// Scope the ConfigMap informer to only kagenti-relevant ConfigMaps.
 			// Without this, the controller would cache ALL ConfigMaps cluster-wide.
 			//
@@ -230,6 +247,10 @@ func main() {
 						},
 					},
 				},
+				// NOTE: All other resources (Namespace, Pod, Deployment, StatefulSet, Gateway)
+				// are intentionally NOT in ByObject. With DefaultNamespaces not set, they will
+				// automatically use the default cluster-wide cache, which is what we want.
+				// Explicitly adding them to ByObject was preventing controllers from starting.
 			},
 		},
 		WebhookServer:          webhookServer,
@@ -335,13 +356,15 @@ func main() {
 			Client:                  mgr.GetClient(),
 			APIReader:               mgr.GetAPIReader(),
 			Scheme:                  mgr.GetScheme(),
+			OperatorNamespace:       operatorNamespace,
 			SpireTrustDomain:        spireTrustDomain,
 			KeycloakAdminTokenCache: &keycloak.CachedAdminTokenProvider{},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")
 			os.Exit(1)
 		}
-		setupLog.Info("Operator-managed client registration controller enabled")
+		setupLog.Info("Operator-managed client registration controller enabled",
+			"operatorNamespace", operatorNamespace)
 	}
 
 	if controller.TektonConfigCRDExists(mgr.GetConfig()) {
@@ -351,6 +374,18 @@ func main() {
 			setupLog.Error(err, "unable to create controller", "controller", "TektonConfig")
 			os.Exit(1)
 		}
+	}
+
+	if enableWaypointProvisioning {
+		if err = (&controller.NamespaceWaypointReconciler{
+			Client:                     mgr.GetClient(),
+			Scheme:                     mgr.GetScheme(),
+			EnableWaypointProvisioning: enableWaypointProvisioning,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "NamespaceWaypoint")
+			os.Exit(1)
+		}
+		setupLog.Info("Waypoint provisioning controller enabled")
 	}
 
 	if err = webhookv1alpha1.SetupAgentCardWebhookWithManager(mgr); err != nil {
