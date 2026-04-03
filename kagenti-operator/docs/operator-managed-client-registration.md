@@ -32,7 +32,7 @@ The webhook continues to inject **proxy-init**, **envoy** / **authbridge**, and 
 ### 1.3 Benefits
 
 - **Fewer containers** when the sidecar path is not desired.
-- **Centralized registration** using namespace `keycloak-admin-secret` (already provisioned for the sidecar contract).
+- **Centralized registration** using operator namespace `keycloak-admin-secret` (stored securely in kagenti-system, not agent namespaces).
 - **Deterministic secret naming** derived from namespace and workload name (`kagenti-keycloak-client-credentials-<hash>`), with **owner references** to the Deployment or StatefulSet.
 - **Safe ordering**: the operator creates the Secret **before** setting the pod-template annotation, so new Pods do not reference a missing Secret.
 - **Admission reinvocation**: the webhook uses `reinvocationPolicy: IfNeeded` so a second pass can add Secret volume mounts if the operator annotates the template **after** the first injection.
@@ -73,8 +73,8 @@ Other workloads are ignored by this controller.
 ### 2.4 Operator reconcile flow (simplified)
 
 1. Read **cluster feature gates** (`kagenti-webhook` ConfigMap in the cluster defaults namespace). If `globalEnabled` or `clientRegistration` is false, skip.
-2. Read **`authbridge-config`** in the workload namespace (`KEYCLOAK_URL`, `KEYCLOAK_REALM`, `SPIRE_ENABLED`, etc.).
-3. Read **`keycloak-admin-secret`** (admin username/password).
+2. Read **`kagenti-operator-config`** from the operator namespace (kagenti-system) or fall back to **`authbridge-config`** in the workload namespace (`KEYCLOAK_URL`, `KEYCLOAK_REALM`, `SPIRE_ENABLED`, etc.).
+3. Read **`keycloak-admin-secret`** from the **operator namespace (kagenti-system)** - admin username/password for Keycloak API access.
 4. Compute **Keycloak client ID**:
    - If `SPIRE_ENABLED` is not true: `namespace/workloadName`.
    - If SPIRE is enabled: `spiffe://<trust-domain>/ns/<namespace>/sa/<serviceAccount>` (requires a **non-default** `serviceAccountName` and operator **`--spire-trust-domain`**).
@@ -97,8 +97,10 @@ Other workloads are ignored by this controller.
 
 ### 3.1 Platform / namespace
 
-- **`authbridge-config`** ConfigMap in the workload namespace with at least `KEYCLOAK_URL`, `KEYCLOAK_REALM`, and consistent `SPIRE_ENABLED` with the mesh.
-- **`keycloak-admin-secret`** in the same namespace with `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD`.
+- **`kagenti-operator-config`** ConfigMap in the **operator namespace (kagenti-system)** with at least `KEYCLOAK_URL`, `KEYCLOAK_REALM`, and `SPIRE_ENABLED` (waypoint mode, centralized config).
+  - Fallback: **`authbridge-config`** ConfigMap in the workload namespace (sidecar mode, backward compatibility).
+- **`keycloak-admin-secret`** in the **operator namespace (kagenti-system)** with `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD`.
+  - **Security**: This secret should ONLY exist in the operator namespace. Agent namespaces do not need access to Keycloak admin credentials.
 - **Webhook** and **operator** versions that both implement this contract (deploy together).
 
 ### 3.2 Workload
@@ -109,8 +111,12 @@ Other workloads are ignored by this controller.
 
 ### 3.3 Operator configuration
 
-- When `authbridge-config` sets `SPIRE_ENABLED=true`, configure **`--spire-trust-domain`** to match the SPIRE server trust domain (same value as used for workload SPIFFE IDs).
-- Ensure the operator can read **`authbridge-config`** and **`keycloak-admin-secret`** in agent namespaces, and create/update **`kagenti-keycloak-client-credentials-*`** Secrets there (see RBAC below).
+- When `kagenti-operator-config` (or fallback `authbridge-config`) sets `SPIRE_ENABLED=true`, configure **`--spire-trust-domain`** to match the SPIRE server trust domain (same value as used for workload SPIFFE IDs).
+- Ensure the operator can:
+  - Read **`kagenti-operator-config`** and **`keycloak-admin-secret`** from the operator namespace (kagenti-system)
+  - Read **`authbridge-config`** from agent namespaces (fallback for backward compatibility)
+  - Create/update **`kagenti-keycloak-client-credentials-*`** Secrets in agent namespaces
+  - See RBAC section below for details
 
 ### 3.4 RBAC: why Secret rules are cluster-wide
 
@@ -122,7 +128,7 @@ That shape is intentional for this controller:
 
 2. **Unknown agent namespaces at install time** — **ClientRegistration** reconciles **Deployments** and **StatefulSets** in **any** namespace where they match the label predicate. Platform teams add agent workloads and namespaces over time; the operator is not tied to a fixed list of namespaces configured when the ClusterRole is applied.
 
-3. **Data plane placement** — **`authbridge-config`** and **`keycloak-admin-secret`** live in the **workload namespace** (same contract as the webhook-injected sidecar). The controller must **Get** those Secrets (and **Create**/**Patch**/**Update** the derived credentials Secret) in that namespace on every reconcile. Without cluster-wide Secret permissions, every new agent namespace would require a coordinated RBAC update before reconciliation could succeed.
+3. **Split configuration placement** — **`kagenti-operator-config`** and **`keycloak-admin-secret`** live in the **operator namespace (kagenti-system)** for centralized waypoint mode. **`authbridge-config`** may exist in workload namespaces for backward compatibility. The controller must **Get** the admin secret from the operator namespace and **Create**/**Patch**/**Update** the derived client credentials Secret in agent namespaces. Without cluster-wide Secret permissions for creating client credentials, every new agent namespace would require a coordinated RBAC update before reconciliation could succeed.
 
 4. **`list` / `watch`** — The kubebuilder marker generates **list** and **watch** alongside **get** for Secrets, consistent with other reconcilers in this project and with controller-runtime’s usual expectation that the delegating client can sync or fall back to the API without ad-hoc verb subsets per resource.
 
@@ -149,10 +155,14 @@ Rolling webhook before operator can leave default workloads **without** registra
 
 ### 4.2 Operator-managed registration (default)
 
-1. Ensure the namespace has `authbridge-config` and `keycloak-admin-secret`.
+1. Ensure the **operator namespace (kagenti-system)** has:
+   - `kagenti-operator-config` ConfigMap with `KEYCLOAK_URL`, `KEYCLOAK_REALM`, etc.
+   - `keycloak-admin-secret` Secret with `KEYCLOAK_ADMIN_USERNAME` and `KEYCLOAK_ADMIN_PASSWORD`
 2. Use normal agent/tool labels; **omit** `kagenti.io/client-registration-inject: "true"` unless you need the legacy sidecar.
 3. If SPIRE is on, set a **dedicated** `serviceAccountName`.
 4. **Restart** or roll the workload so the operator reconciles and the webhook applies Secret mounts (including on reinvocation).
+
+**Note**: Agent namespaces do NOT need `keycloak-admin-secret`. The operator reads this secret from its own namespace (kagenti-system) for all client registrations.
 
 The operator will create or reuse the Keycloak client and Secret; the webhook will inject mounts on create or on reinvocation.
 

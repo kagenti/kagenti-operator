@@ -25,6 +25,7 @@ import (
 const (
 	clientRegistrationTestNamespace      = "test-ns"
 	clientRegistrationTestDeploymentName = "my-dep"
+	clientRegistrationOperatorNamespace  = "kagenti-system"
 )
 
 func TestWorkloadWantsOperatorClientReg(t *testing.T) {
@@ -322,7 +323,7 @@ func TestClientRegistrationReconciler_Reconcile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			scheme := clientRegistrationTestScheme(t)
 			c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(tc.objs...).Build()
-			r := &ClientRegistrationReconciler{Client: c, Scheme: scheme}
+			r := &ClientRegistrationReconciler{Client: c, Scheme: scheme, OperatorNamespace: clientRegistrationOperatorNamespace}
 			res, err := r.Reconcile(ctx, req)
 			if err != nil {
 				t.Fatalf("Reconcile: %v", err)
@@ -350,9 +351,9 @@ func TestClientRegistrationReconciler_Reconcile(t *testing.T) {
 			clusterFeatureGatesConfigMap(true),
 			dep,
 			authbridgeConfigMapForTest(clientRegistrationTestNamespace, srv.URL),
-			keycloakAdminSecretForTest(clientRegistrationTestNamespace),
+			keycloakAdminSecretForTest(clientRegistrationOperatorNamespace),
 		).Build()
-		r := &ClientRegistrationReconciler{Client: c, Scheme: scheme}
+		r := &ClientRegistrationReconciler{Client: c, Scheme: scheme, OperatorNamespace: clientRegistrationOperatorNamespace}
 		res, err := r.Reconcile(ctx, req)
 		if err != nil || res != (ctrl.Result{}) {
 			t.Fatalf("got (%v, %v), want (zero Result, nil)", res, err)

@@ -57,8 +57,9 @@ const (
 // never reference a missing Secret; the webhook mounts the Secret for injected sidecars that use shared-data.
 type ClientRegistrationReconciler struct {
 	client.Client
-	// APIReader reads authbridge-config and keycloak-admin-secret from the API server. Those objects
-	// are not in the manager's ConfigMap cache (see cmd/main.go cache.ByObject for ConfigMap).
+	// APIReader reads kagenti-operator-config and keycloak-admin-secret from the API server.
+	// These objects are not in the manager's ConfigMap cache (see cmd/main.go cache.ByObject).
+	// The keycloak-admin-secret is read from the operator namespace only (kagenti-system).
 	APIReader client.Reader
 	Scheme    *runtime.Scheme
 
@@ -170,10 +171,16 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	// Read keycloak-admin-secret from the operator namespace (kagenti-system).
+	// This secret is created by the installation script and should only exist in the operator namespace.
+	// The operator uses these credentials to register OIDC clients in Keycloak on behalf of agents.
+	// Agent namespaces should NOT have a copy of this secret - only the operator needs access.
 	adminSecret := &corev1.Secret{}
-	if err := r.uncachedReader().Get(ctx, types.NamespacedName{Namespace: ns, Name: keycloakAdminSecret}, adminSecret); err != nil {
+	if err := r.uncachedReader().Get(ctx, types.NamespacedName{Namespace: r.OperatorNamespace, Name: keycloakAdminSecret}, adminSecret); err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info("waiting for keycloak-admin-secret", "namespace", ns)
+			logger.Info("waiting for keycloak-admin-secret in operator namespace",
+				"operatorNamespace", r.OperatorNamespace,
+				"secretName", keycloakAdminSecret)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		return ctrl.Result{}, err
@@ -181,7 +188,8 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	adminUser := string(adminSecret.Data["KEYCLOAK_ADMIN_USERNAME"])
 	adminPass := string(adminSecret.Data["KEYCLOAK_ADMIN_PASSWORD"])
 	if adminUser == "" || adminPass == "" {
-		logger.Info("keycloak-admin-secret missing username/password keys")
+		logger.Info("keycloak-admin-secret missing username/password keys",
+			"operatorNamespace", r.OperatorNamespace)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
