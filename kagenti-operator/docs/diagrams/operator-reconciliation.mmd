@@ -1,0 +1,71 @@
+%% Operator Reconciliation Flows
+graph TB
+    subgraph "NamespaceWaypointReconciler"
+        NWR_WATCH[Watch Namespaces<br/>& Pods]
+        NWR_CHECK{Has kagenti.io/type=agent<br/>workload pods?}
+        NWR_GATEWAY{Gateway exists?}
+        NWR_CREATE[Create Gateway Resource]
+        NWR_LABELS{Istio labels applied?}
+        NWR_APPLY[Apply Istio Labels:<br/>- istio-discovery: enabled<br/>- istio.io/dataplane-mode: ambient<br/>- istio.io/use-waypoint: <ns>-waypoint]
+        NWR_DONE[Reconcile Complete]
+
+        NWR_WATCH --> NWR_CHECK
+        NWR_CHECK -->|Yes| NWR_GATEWAY
+        NWR_CHECK -->|No| NWR_DONE
+        NWR_GATEWAY -->|No| NWR_CREATE
+        NWR_GATEWAY -->|Yes| NWR_LABELS
+        NWR_CREATE --> NWR_LABELS
+        NWR_LABELS -->|No| NWR_APPLY
+        NWR_LABELS -->|Yes| NWR_DONE
+        NWR_APPLY --> NWR_DONE
+    end
+
+    subgraph "ClientRegistrationReconciler"
+        CRR_WATCH[Watch Deployments<br/>& StatefulSets]
+        CRR_FILTER{kagenti.io/type=agent<br/>AND NOT client-registration-inject=true?}
+        CRR_GATES{Feature gates enabled?}
+        CRR_CONFIG[Read kagenti-operator-config<br/>or authbridge-config]
+        CRR_ADMIN[Read keycloak-admin-secret<br/>from operator namespace]
+        CRR_CLIENTID[Compute Client ID:<br/>namespace/workload OR<br/>spiffe://trust-domain/ns/.../sa/...]
+        CRR_REGISTER[Register/Fetch OIDC Client<br/>in Keycloak]
+        CRR_AUDIENCE[Ensure Audience Scopes<br/>for platform clients]
+        CRR_SECRET{Secret exists?}
+        CRR_CREATE_SEC[Create Secret:<br/>kagenti-keycloak-client-credentials-<hash>]
+        CRR_UPDATE_SEC[Update Secret if changed]
+        CRR_ANNOTATE[Annotate Pod Template:<br/>kagenti.io/keycloak-client-credentials-secret-name]
+        CRR_DONE[Reconcile Complete]
+
+        CRR_WATCH --> CRR_FILTER
+        CRR_FILTER -->|No| CRR_DONE
+        CRR_FILTER -->|Yes| CRR_GATES
+        CRR_GATES -->|Disabled| CRR_DONE
+        CRR_GATES -->|Enabled| CRR_CONFIG
+        CRR_CONFIG --> CRR_ADMIN
+        CRR_ADMIN --> CRR_CLIENTID
+        CRR_CLIENTID --> CRR_REGISTER
+        CRR_REGISTER --> CRR_AUDIENCE
+        CRR_AUDIENCE --> CRR_SECRET
+        CRR_SECRET -->|No| CRR_CREATE_SEC
+        CRR_SECRET -->|Yes| CRR_UPDATE_SEC
+        CRR_CREATE_SEC --> CRR_ANNOTATE
+        CRR_UPDATE_SEC --> CRR_ANNOTATE
+        CRR_ANNOTATE --> CRR_DONE
+    end
+
+    subgraph "External Systems"
+        KEYCLOAK[Keycloak<br/>OIDC Provider]
+        K8S_API[Kubernetes API<br/>Gateway, Secret, ConfigMap]
+    end
+
+    NWR_CREATE -.creates.-> K8S_API
+    NWR_APPLY -.patches.-> K8S_API
+    CRR_REGISTER -.HTTP API.-> KEYCLOAK
+    CRR_AUDIENCE -.HTTP API.-> KEYCLOAK
+    CRR_CREATE_SEC -.creates.-> K8S_API
+    CRR_ANNOTATE -.patches.-> K8S_API
+
+    style NWR_DONE fill:#bfb,stroke:#333,stroke-width:2px
+    style CRR_DONE fill:#bfb,stroke:#333,stroke-width:2px
+    style CRR_ADMIN fill:#f9f,stroke:#333,stroke-width:2px
+    style KEYCLOAK fill:#ffd,stroke:#333,stroke-width:2px
+    style K8S_API fill:#bbf,stroke:#333,stroke-width:2px

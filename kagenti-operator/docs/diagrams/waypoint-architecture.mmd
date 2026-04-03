@@ -1,0 +1,86 @@
+%% High-Level Waypoint Mode Architecture
+graph TB
+    subgraph "Operator Namespace (kagenti-system)"
+        OP[kagenti-controller-manager]
+        NWRC[NamespaceWaypointReconciler]
+        CRC[ClientRegistrationReconciler]
+        OPSEC[keycloak-admin-secret<br/>ADMIN CREDENTIALS]
+        OPCFG[kagenti-operator-config<br/>KEYCLOAK_URL, REALM, etc.]
+
+        OP --> NWRC
+        OP --> CRC
+        CRC --> OPSEC
+        CRC --> OPCFG
+        NWRC --> OPCFG
+    end
+
+    subgraph "Keycloak (External)"
+        KC[Keycloak Server]
+        REALM[Realm: kagenti]
+        KC --> REALM
+    end
+
+    subgraph "Agent Namespace: team1"
+        NS1[Namespace<br/>labels: kagenti.io/type=agent]
+        GW1[Istio Gateway<br/>team1-waypoint]
+        GWP1[Waypoint Pod<br/>L7 Envoy Proxy]
+
+        AGENT1[Agent Pod<br/>1 container]
+        SEC1[Client Credentials Secret<br/>client-id.txt<br/>client-secret.txt]
+
+        NS1 -.istio labels.-> GW1
+        GW1 --> GWP1
+        AGENT1 -.mounts.-> SEC1
+    end
+
+    subgraph "Agent Namespace: team2"
+        NS2[Namespace<br/>labels: kagenti.io/type=agent]
+        GW2[Istio Gateway<br/>team2-waypoint]
+        GWP2[Waypoint Pod<br/>L7 Envoy Proxy]
+
+        AGENT2[Agent Pod<br/>1 container]
+        SEC2[Client Credentials Secret<br/>client-id.txt<br/>client-secret.txt]
+
+        NS2 -.istio labels.-> GW2
+        GW2 --> GWP2
+        AGENT2 -.mounts.-> SEC2
+    end
+
+    subgraph "Istio Control Plane"
+        ISTIOD[istiod<br/>Control Plane]
+        ZTUNNEL[ztunnel DaemonSet<br/>L4 mTLS]
+    end
+
+    %% Operator provisions infrastructure
+    NWRC -->|creates| GW1
+    NWRC -->|creates| GW2
+    NWRC -->|applies labels| NS1
+    NWRC -->|applies labels| NS2
+
+    %% Operator manages client registration
+    CRC -->|registers OIDC client| KC
+    CRC -->|creates secret| SEC1
+    CRC -->|creates secret| SEC2
+
+    %% Istio manages waypoint pods
+    ISTIOD -.manages.-> GWP1
+    ISTIOD -.manages.-> GWP2
+    ISTIOD -.manages.-> ZTUNNEL
+
+    %% Data plane traffic
+    AGENT1 -->|L4 mTLS| ZTUNNEL
+    ZTUNNEL -->|routes to| GWP1
+    GWP1 -->|L7 proxy| GWP2
+    GWP2 -->|routes to| AGENT2
+
+    %% Authentication flow
+    AGENT1 -.obtains token.-> KC
+    AGENT2 -.obtains token.-> KC
+
+    style OPSEC fill:#f9f,stroke:#333,stroke-width:2px
+    style OPCFG fill:#bbf,stroke:#333,stroke-width:2px
+    style SEC1 fill:#bfb,stroke:#333,stroke-width:2px
+    style SEC2 fill:#bfb,stroke:#333,stroke-width:2px
+    style GWP1 fill:#ffd,stroke:#333,stroke-width:2px
+    style GWP2 fill:#ffd,stroke:#333,stroke-width:2px
+    style ZTUNNEL fill:#ddf,stroke:#333,stroke-width:2px

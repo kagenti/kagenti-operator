@@ -1,0 +1,49 @@
+%% Agent-to-Agent Communication Flow with Token Exchange
+sequenceDiagram
+    participant A1 as Agent Pod<br/>(team1/agent-a)
+    participant KC as Keycloak
+    participant Z1 as ztunnel<br/>(team1 node)
+    participant W1 as Waypoint Gateway<br/>(team1-waypoint)
+    participant W2 as Waypoint Gateway<br/>(team2-waypoint)
+    participant Z2 as ztunnel<br/>(team2 node)
+    participant A2 as Agent Pod<br/>(team2/agent-b)
+
+    Note over A1: Step 1: Obtain Access Token
+    A1->>A1: Read credentials from<br/>/shared/client-id.txt<br/>/shared/client-secret.txt
+    A1->>KC: POST /token<br/>grant_type=client_credentials<br/>client_id=team1/agent-a<br/>client_secret=<secret>
+    KC-->>A1: JWT Access Token<br/>aud: [team2/agent-b, ...]<br/>azp: team1/agent-a<br/>exp: 300s
+
+    Note over A1,KC: Step 2: (Optional) Token Exchange
+    A1->>KC: POST /token<br/>grant_type=token-exchange<br/>subject_token=<access_token><br/>audience=team2/agent-b
+    KC-->>A1: Exchanged JWT Token<br/>aud: team2/agent-b<br/>azp: team1/agent-a
+
+    Note over A1,A2: Step 3: Cross-Namespace HTTP Request
+    A1->>Z1: HTTP GET /api/task<br/>Host: agent-b.team2.svc.cluster.local<br/>Authorization: Bearer <jwt>
+
+    Note over Z1: L4 mTLS Tunnel
+    Z1->>W1: mTLS encrypted traffic<br/>Source: team1/agent-a
+
+    Note over W1: L7 Processing
+    W1->>W1: 1. Extract JWT from Authorization header
+    W1->>W1: 2. Validate JWT signature (Keycloak JWKS)
+    W1->>W1: 3. Check exp, iss, aud claims
+    W1->>W1: 4. Verify audience includes team2/agent-b
+
+    Note over W1,W2: Cross-Namespace L4 mTLS
+    W1->>W2: mTLS encrypted traffic<br/>Validated request
+
+    Note over W2: L7 Validation (Defense in Depth)
+    W2->>W2: 1. Re-validate JWT signature
+    W2->>W2: 2. Check audience matches team2/agent-b
+    W2->>W2: 3. Apply AuthorizationPolicy (if configured)
+
+    W2->>Z2: Forward validated request
+    Z2->>A2: HTTP GET /api/task<br/>Headers: x-forwarded-client-cert, etc.
+
+    A2-->>Z2: HTTP 200 OK<br/>Response data
+    Z2-->>W2: Response
+    W2-->>W1: Response
+    W1-->>Z1: Response
+    Z1-->>A1: HTTP 200 OK<br/>Response data
+
+    Note over A1,A2: ✅ Authenticated & Authorized Communication Complete

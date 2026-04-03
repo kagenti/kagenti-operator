@@ -1,0 +1,68 @@
+%% Security Architecture - Centralized Secrets
+graph TB
+    subgraph "kagenti-system Namespace (Operator)"
+        OP[Kagenti Operator Pod]
+        ADMIN_SEC[🔒 keycloak-admin-secret<br/>KEYCLOAK_ADMIN_USERNAME<br/>KEYCLOAK_ADMIN_PASSWORD]
+        OP_CFG[kagenti-operator-config<br/>KEYCLOAK_URL<br/>KEYCLOAK_REALM<br/>...]
+
+        OP -->|reads| ADMIN_SEC
+        OP -->|reads| OP_CFG
+    end
+
+    subgraph "Keycloak (External)"
+        KC_ADMIN[Admin REST API<br/>/admin/realms/kagenti/clients]
+        KC_TOKEN[Token Endpoint<br/>/realms/kagenti/protocol/openid-connect/token]
+    end
+
+    subgraph "team1 Namespace (Agents)"
+        AGENT1[Agent Pod<br/>team1/agent-a]
+        CLIENT_SEC1[🔑 Client Credentials Secret<br/>client-id: team1/agent-a<br/>client-secret: <random-32-chars>]
+
+        AGENT1 -->|mounts read-only| CLIENT_SEC1
+        AGENT1 -.❌ NO ACCESS.-> ADMIN_SEC
+    end
+
+    subgraph "team2 Namespace (Agents)"
+        AGENT2[Agent Pod<br/>team2/agent-b]
+        CLIENT_SEC2[🔑 Client Credentials Secret<br/>client-id: team2/agent-b<br/>client-secret: <random-32-chars>]
+
+        AGENT2 -->|mounts read-only| CLIENT_SEC2
+        AGENT2 -.❌ NO ACCESS.-> ADMIN_SEC
+    end
+
+    subgraph "team3 Namespace (Agents)"
+        AGENT3[Agent Pod<br/>team3/agent-c]
+        CLIENT_SEC3[🔑 Client Credentials Secret<br/>client-id: team3/agent-c<br/>client-secret: <random-32-chars>]
+
+        AGENT3 -->|mounts read-only| CLIENT_SEC3
+        AGENT3 -.❌ NO ACCESS.-> ADMIN_SEC
+    end
+
+    %% Operator uses admin credentials to manage clients
+    OP -->|authenticates with<br/>admin credentials| KC_ADMIN
+    OP -->|registers OIDC clients| KC_ADMIN
+    OP -->|creates secrets| CLIENT_SEC1
+    OP -->|creates secrets| CLIENT_SEC2
+    OP -->|creates secrets| CLIENT_SEC3
+
+    %% Agents use client credentials for tokens
+    AGENT1 -->|client_credentials grant| KC_TOKEN
+    AGENT2 -->|client_credentials grant| KC_TOKEN
+    AGENT3 -->|client_credentials grant| KC_TOKEN
+
+    %% Security boundaries
+    classDef adminSecret fill:#f9f,stroke:#900,stroke-width:3px
+    classDef clientSecret fill:#bfb,stroke:#090,stroke-width:2px
+    classDef noAccess stroke:#f00,stroke-dasharray: 5 5,stroke-width:2px
+
+    class ADMIN_SEC adminSecret
+    class CLIENT_SEC1,CLIENT_SEC2,CLIENT_SEC3 clientSecret
+
+    %% Annotations
+    note1[🔒 Admin Secret<br/>- ONLY in operator namespace<br/>- NEVER in agent namespaces<br/>- Used ONLY by operator]
+    note2[🔑 Client Secrets<br/>- One per agent workload<br/>- Owner reference to workload<br/>- Auto-deleted with workload]
+    note3[✅ Security Benefits<br/>- Reduced attack surface<br/>- Principle of least privilege<br/>- Centralized rotation<br/>- Simplified auditing]
+
+    style note1 fill:#fff,stroke:#900,stroke-width:2px
+    style note2 fill:#fff,stroke:#090,stroke-width:2px
+    style note3 fill:#fff,stroke:#009,stroke-width:2px

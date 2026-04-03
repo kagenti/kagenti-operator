@@ -1,0 +1,51 @@
+%% Waypoint Mode vs Sidecar Mode Comparison
+graph TB
+    subgraph "Waypoint Mode (Default)"
+        subgraph "Namespace: team1"
+            WP_GW[Waypoint Gateway Pod<br/>Shared L7 Proxy]
+            WP_POD1[Agent Pod 1<br/>├─ agent container]
+            WP_POD2[Agent Pod 2<br/>├─ agent container]
+            WP_POD3[Agent Pod 3<br/>├─ agent container]
+
+            WP_POD1 -.routes through.-> WP_GW
+            WP_POD2 -.routes through.-> WP_GW
+            WP_POD3 -.routes through.-> WP_GW
+        end
+
+        WP_ZTUNNEL[ztunnel DaemonSet<br/>L4 mTLS for all pods]
+
+        WP_GW --> WP_ZTUNNEL
+
+        WP_METRICS[📊 Resource Usage<br/>3 agent pods = 4 containers total<br/>- 3 agent containers<br/>- 1 waypoint gateway<br/><br/>✅ 66% reduction vs sidecar]
+    end
+
+    subgraph "Sidecar Mode (Legacy)"
+        subgraph "Namespace: team2"
+            SC_POD1[Agent Pod 1<br/>├─ agent container<br/>├─ envoy-proxy sidecar<br/>├─ spiffe-helper sidecar<br/>└─ client-registration sidecar]
+            SC_POD2[Agent Pod 2<br/>├─ agent container<br/>├─ envoy-proxy sidecar<br/>├─ spiffe-helper sidecar<br/>└─ client-registration sidecar]
+            SC_POD3[Agent Pod 3<br/>├─ agent container<br/>├─ envoy-proxy sidecar<br/>├─ spiffe-helper sidecar<br/>└─ client-registration sidecar]
+        end
+
+        SC_METRICS[📊 Resource Usage<br/>3 agent pods = 12 containers total<br/>- 3 agent containers<br/>- 3 envoy-proxy sidecars<br/>- 3 spiffe-helper sidecars<br/>- 3 client-registration sidecars<br/><br/>⚠️ High per-pod overhead]
+    end
+
+    subgraph "Comparison Table"
+        TABLE["
+        | Aspect | Waypoint | Sidecar |
+        |--------|----------|---------|
+        | Containers/pod | 1 | 4 |
+        | L7 Proxy | Shared | Per-pod |
+        | Client Reg | Operator | Sidecar |
+        | Resource Overhead | Low | High |
+        | Pod Startup | Fast | Slower |
+        "]
+    end
+
+    style WP_GW fill:#ffd,stroke:#333,stroke-width:2px
+    style WP_ZTUNNEL fill:#ddf,stroke:#333,stroke-width:2px
+    style WP_METRICS fill:#bfb,stroke:#090,stroke-width:2px
+    style SC_POD1 fill:#fdd,stroke:#333,stroke-width:2px
+    style SC_POD2 fill:#fdd,stroke:#333,stroke-width:2px
+    style SC_POD3 fill:#fdd,stroke:#333,stroke-width:2px
+    style SC_METRICS fill:#fbb,stroke:#900,stroke-width:2px
+    style TABLE fill:#fff,stroke:#333,stroke-width:1px
