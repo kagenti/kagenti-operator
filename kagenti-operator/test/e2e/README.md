@@ -1,9 +1,10 @@
 # E2E Tests
 
-End-to-end tests for the kagenti-operator. The suite runs 8 specs:
+End-to-end tests for the kagenti-operator. The suite runs 11 specs:
 
 - **Manager tests** (2 specs) — controller pod readiness and Prometheus metrics
 - **AgentCard tests** (6 specs) — webhook validation, auto-discovery, duplicate prevention, audit mode, and SPIRE signature verification
+- **ClientRegistration tests** (3 specs) — Keycloak client registration, SPIFFE ID templates, and Secret creation
 
 ## Prerequisites
 
@@ -20,7 +21,7 @@ The test suite auto-detects Docker vs Podman. No env vars needed.
 # Create a fresh Kind cluster
 kind delete cluster 2>/dev/null; kind create cluster
 
-# Run all 8 specs (~7 min)
+# Run all 11 specs (~9 min)
 make test-e2e
 ```
 
@@ -46,6 +47,9 @@ go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="should reject AgentCard|should n
 # Signature verification tests only (~5 min)
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="SignatureInvalidAudit|should verify signed"
 
+# ClientRegistration tests only (~3 min)
+go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="ClientRegistration"
+
 # Manager tests only
 go test ./test/e2e/ -v -ginkgo.v -ginkgo.focus="Manager"
 ```
@@ -66,6 +70,9 @@ kind delete cluster
 | Duplicate prevention | Without signature | Webhook rejects a second AgentCard targeting the same workload |
 | Audit mode | With signature | Unsigned card syncs (Synced=True) but reports SignatureVerified=False with reason SignatureInvalidAudit |
 | Signed agent | With signature | SPIRE-signed card gets SignatureVerified=True, correct SPIFFE ID, Synced=True, and Bound=True |
+| Client registration (non-SPIRE) | ClientRegistration | Controller creates client credentials Secret with `namespace/workloadName` format and patches pod template annotation |
+| Client registration (SPIRE default) | ClientRegistration | Controller creates SPIFFE ID using default template `spiffe://{domain}/ns/{namespace}/sa/{serviceAccount}` |
+| Client registration (SPIRE custom) | ClientRegistration | Controller respects `SPIRE_ID_TEMPLATE` env var for custom SPIFFE ID formats |
 
 ## Architecture
 
@@ -197,6 +204,48 @@ The most complex scenario. Controller runs with `--require-a2a-signature=true` (
 Test verifies: `SignatureVerified=True` (reason `SignatureValid`),
 `signatureSpiffeId = spiffe://example.org/ns/e2e-agentcard-test/sa/signed-agent-sa`,
 `Synced=True`, `Bound=True`.
+
+#### Client registration (non-SPIRE mode)
+
+Controller is patched with `--enable-operator-client-registration=true --spire-trust-domain=example.org`.
+Deploys a mock Keycloak server, `authbridge-config` ConfigMap with `SPIRE_ENABLED=false`, and
+`keycloak-admin-secret`. Deploys `clientreg-agent` workload.
+
+1. Controller watches the Deployment (has `kagenti.io/type=agent` label)
+2. Reads `authbridge-config` and `keycloak-admin-secret` from workload namespace
+3. Computes client ID as `namespace/workloadName` (non-SPIRE format)
+4. Registers client with mock Keycloak via admin API
+5. Creates Secret with `client-id.txt` and `client-secret.txt` (owner: Deployment)
+6. Patches Deployment pod template with `kagenti.io/keycloak-client-credentials-secret-name` annotation
+
+Test verifies: Secret created, contains both keys, client ID format is `e2e-clientreg-test/clientreg-agent`,
+and pod template annotation references the Secret name.
+
+#### Client registration (SPIRE mode with default template)
+
+Updates `authbridge-config` to `SPIRE_ENABLED=true`. Deploys `clientreg-spire-agent` with dedicated
+ServiceAccount `clientreg-spire-sa`.
+
+1. Controller detects SPIRE is enabled
+2. Validates ServiceAccount is not `default`
+3. Renders default SPIFFE ID template: `spiffe://{{.TrustDomain}}/ns/{{.Namespace}}/sa/{{.ServiceAccount}}`
+4. Computes client ID as `spiffe://example.org/ns/e2e-clientreg-test/sa/clientreg-spire-sa`
+5. Registers client and creates Secret with SPIFFE ID as client ID
+
+Test verifies: Client ID matches expected SPIFFE format with default template.
+
+#### Client registration (SPIRE mode with custom template)
+
+Patches operator Deployment to set env var `SPIRE_ID_TEMPLATE=spiffe://{{.TrustDomain}}/workload/{{.Namespace}}/{{.ServiceAccount}}`.
+Waits for operator restart. Deploys `clientreg-custom-agent` with ServiceAccount `clientreg-custom-sa`.
+
+1. Controller reads custom template from environment variable
+2. Renders custom template with workload metadata
+3. Computes client ID as `spiffe://example.org/workload/e2e-clientreg-test/clientreg-custom-sa`
+4. Registers client and creates Secret
+
+Test verifies: Client ID matches expected SPIFFE format with custom template. Restores operator
+to default configuration after test.
 
 ## Troubleshooting
 

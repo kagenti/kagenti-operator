@@ -89,6 +89,7 @@ func main() {
 	var enableMLflow bool
 
 	var spireTrustDomain string
+	var spireIDTemplate string
 	var spireTrustBundleConfigMapName string
 	var spireTrustBundleConfigMapNS string
 	var spireTrustBundleConfigMapKey string
@@ -131,6 +132,14 @@ func main() {
 
 	flag.StringVar(&spireTrustDomain, "spire-trust-domain", "",
 		"SPIRE trust domain for identity binding (e.g. 'example.org')")
+
+	spireIDTemplateDefault := "spiffe://{{.TrustDomain}}/ns/{{.Namespace}}/sa/{{.ServiceAccount}}"
+	if envTemplate := os.Getenv("SPIRE_ID_TEMPLATE"); envTemplate != "" {
+		spireIDTemplateDefault = envTemplate
+	}
+	flag.StringVar(&spireIDTemplate, "spire-id-template", spireIDTemplateDefault,
+		"SPIFFE ID template for Keycloak client IDs (must match ClusterSPIFFEID spiffeIDTemplate, "+
+			"can also be set via SPIRE_ID_TEMPLATE env var)")
 	flag.StringVar(&spireTrustBundleConfigMapName, "spire-trust-bundle-configmap", "",
 		"Name of the ConfigMap containing the SPIRE trust bundle (SPIFFE JSON format)")
 	flag.StringVar(&spireTrustBundleConfigMapNS, "spire-trust-bundle-configmap-namespace", "",
@@ -404,6 +413,7 @@ func main() {
 			APIReader:               mgr.GetAPIReader(),
 			Scheme:                  mgr.GetScheme(),
 			SpireTrustDomain:        spireTrustDomain,
+			SpireIDTemplate:         spireIDTemplate,
 			KeycloakAdminTokenCache: &keycloak.CachedAdminTokenProvider{},
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")

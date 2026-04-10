@@ -8,11 +8,13 @@ you may not use this file except in compliance with the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -61,6 +63,7 @@ type ClientRegistrationReconciler struct {
 	Scheme    *runtime.Scheme
 
 	SpireTrustDomain string
+	SpireIDTemplate  string
 	// KeycloakAdminTokenCache caches admin password-grant tokens by Keycloak URL and credentials to
 	// avoid a token request on every reconcile. If nil, PasswordGrantToken is used without caching.
 	KeycloakAdminTokenCache *keycloak.CachedAdminTokenProvider
@@ -180,7 +183,7 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	spireEnabled := strings.EqualFold(strings.TrimSpace(ab.SpireEnabled), "true")
 	clientName := ns + "/" + workloadName
-	clientID, err := resolveKeycloakClientID(ns, workloadName, template.Spec.ServiceAccountName, spireEnabled, r.SpireTrustDomain)
+	clientID, err := resolveKeycloakClientID(ns, workloadName, template.Spec.ServiceAccountName, spireEnabled, r.SpireTrustDomain, r.SpireIDTemplate)
 	if err != nil {
 		logger.Info("cannot resolve Keycloak client id yet", "reason", err.Error())
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -375,7 +378,7 @@ func readClusterFeatureGates(ctx context.Context, c client.Reader) (globalOn, cl
 	return globalOn, clientReg, injectTools, nil
 }
 
-func resolveKeycloakClientID(namespace, workloadName, serviceAccount string, spireEnabled bool, trustDomain string) (string, error) {
+func resolveKeycloakClientID(namespace, workloadName, serviceAccount string, spireEnabled bool, trustDomain, spireIDTemplate string) (string, error) {
 	sa := strings.TrimSpace(serviceAccount)
 	if sa == "" {
 		sa = "default"
@@ -389,7 +392,28 @@ func resolveKeycloakClientID(namespace, workloadName, serviceAccount string, spi
 	if trustDomain == "" {
 		return "", fmt.Errorf("SPIRE enabled: operator --spire-trust-domain is required for operator-managed client registration")
 	}
-	return fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", trustDomain, namespace, sa), nil
+	if spireIDTemplate == "" {
+		return "", fmt.Errorf("SPIRE enabled: operator --spire-id-template is required for operator-managed client registration")
+	}
+
+	// Parse and render the SPIFFE ID template
+	tmpl, err := template.New("spiffe-id").Parse(spireIDTemplate)
+	if err != nil {
+		return "", fmt.Errorf("invalid SPIFFE ID template: %w", err)
+	}
+
+	data := map[string]string{
+		"TrustDomain":    trustDomain,
+		"Namespace":      namespace,
+		"ServiceAccount": sa,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return "", fmt.Errorf("failed to render SPIFFE ID template: %w", err)
+	}
+
+	return buf.String(), nil
 }
 
 func keycloakClientCredentialsSecretName(namespace, workload string) string {

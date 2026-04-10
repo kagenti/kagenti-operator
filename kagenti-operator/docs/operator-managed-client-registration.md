@@ -77,7 +77,7 @@ Other workloads are ignored by this controller.
 3. Read **`keycloak-admin-secret`** (admin username/password).
 4. Compute **Keycloak client ID**:
    - If `SPIRE_ENABLED` is not true: `namespace/workloadName`.
-   - If SPIRE is enabled: `spiffe://<trust-domain>/ns/<namespace>/sa/<serviceAccount>` (requires a **non-default** `serviceAccountName` and operator **`--spire-trust-domain`**).
+   - If SPIRE is enabled: render the `--spire-id-template` with trust domain, namespace, and service account (default format: `spiffe://<trust-domain>/ns/<namespace>/sa/<serviceAccount>`). Requires a **non-default** `serviceAccountName`, operator **`--spire-trust-domain`**, and **`--spire-id-template`**.
 5. **Register or fetch** the client via Keycloak admin API (`internal/keycloak`).
 6. **Create or update** the credentials Secret; set **owner** to the Deployment/StatefulSet.
 7. **Patch** the pod template annotation `kagenti.io/keycloak-client-credentials-secret-name` to the deterministic secret name.
@@ -88,6 +88,7 @@ Other workloads are ignored by this controller.
 |-----------|-------------|------|
 | Operator (controller) | `--enable-operator-client-registration` (default **false**) | Master switch for the ClientRegistration controller. |
 | Operator (controller) | `--spire-trust-domain` | Required for SPIFFE-shaped client IDs when `authbridge-config` has `SPIRE_ENABLED=true`. |
+| Operator (controller) | `--spire-id-template` (default `spiffe://{{.TrustDomain}}/ns/{{.Namespace}}/sa/{{.ServiceAccount}}`) | SPIFFE ID template for Keycloak client IDs. Must match the `spiffeIDTemplate` in ClusterSPIFFEID resources. Can also be set via `SPIRE_ID_TEMPLATE` environment variable. |
 | Operator (webhook) | `--enable-client-registration` | Cluster-wide gate for client-registration **injection** (precedence still applies). |
 | Operator (webhook) | Feature gates file (`/etc/kagenti/feature-gates/feature-gates.yaml`) | `clientRegistration`, `injectTools`, `globalEnabled`, etc., same as for injected sidecars. |
 
@@ -110,6 +111,7 @@ Other workloads are ignored by this controller.
 ### 3.3 Operator configuration
 
 - When `authbridge-config` sets `SPIRE_ENABLED=true`, configure **`--spire-trust-domain`** to match the SPIRE server trust domain (same value as used for workload SPIFFE IDs).
+- Configure **`--spire-id-template`** (or set the **`SPIRE_ID_TEMPLATE`** environment variable) to match the `spiffeIDTemplate` used in your ClusterSPIFFEID resources. The default template `spiffe://{{.TrustDomain}}/ns/{{.Namespace}}/sa/{{.ServiceAccount}}` matches the standard format. If you use a custom template in SPIRE (e.g., with pod name or labels), update this flag or environment variable accordingly. The flag takes precedence over the environment variable if both are set.
 - Ensure the operator can read **`authbridge-config`** and **`keycloak-admin-secret`** in agent namespaces, and create/update **`kagenti-keycloak-client-credentials-*`** Secrets there (see RBAC below).
 
 ### 3.4 RBAC: why Secret rules are cluster-wide

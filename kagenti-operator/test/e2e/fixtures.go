@@ -465,3 +465,232 @@ spec:
       agentcard: "true"
 `
 }
+
+// mockKeycloakFixture returns YAML for a mock Keycloak server (for ClientRegistration tests).
+// The mock server simulates the Keycloak admin API for client registration.
+func mockKeycloakFixture() string {
+	return `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-keycloak
+  namespace: ` + testNamespace + `
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-keycloak
+  template:
+    metadata:
+      labels:
+        app: mock-keycloak
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mock-keycloak
+          image: docker.io/python:3.11-slim
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - -c
+            - |
+              import http.server, json, base64, uuid
+              clients = {}
+              class H(http.server.BaseHTTPRequestHandler):
+                  def do_POST(self):
+                      # Admin token endpoint
+                      if self.path == '/realms/master/protocol/openid-connect/token':
+                          self.send_response(200)
+                          self.send_header('Content-Type', 'application/json')
+                          self.end_headers()
+                          resp = {'access_token': 'mock-admin-token', 'token_type': 'bearer'}
+                          self.wfile.write(json.dumps(resp).encode())
+                      # Create client endpoint
+                      elif self.path.startswith('/admin/realms/') and self.path.endswith('/clients'):
+                          length = int(self.headers.get('Content-Length', 0))
+                          body = self.rfile.read(length).decode('utf-8')
+                          client_data = json.loads(body)
+                          client_id = client_data.get('clientId', '')
+                          secret = str(uuid.uuid4())
+                          clients[client_id] = {'id': str(uuid.uuid4()), 'clientId': client_id, 'secret': secret}
+                          self.send_response(201)
+                          self.send_header('Location', '/admin/realms/test/clients/' + clients[client_id]['id'])
+                          self.end_headers()
+                      else:
+                          self.send_response(404)
+                          self.end_headers()
+                  def do_GET(self):
+                      # Get clients by clientId
+                      if self.path.startswith('/admin/realms/') and 'clientId=' in self.path:
+                          client_id = self.path.split('clientId=')[1].split('&')[0]
+                          if client_id in clients:
+                              self.send_response(200)
+                              self.send_header('Content-Type', 'application/json')
+                              self.end_headers()
+                              self.wfile.write(json.dumps([clients[client_id]]).encode())
+                          else:
+                              self.send_response(200)
+                              self.send_header('Content-Type', 'application/json')
+                              self.end_headers()
+                              self.wfile.write(b'[]')
+                      # Get client secret
+                      elif '/client-secret' in self.path:
+                          for cid, data in clients.items():
+                              if data['id'] in self.path:
+                                  self.send_response(200)
+                                  self.send_header('Content-Type', 'application/json')
+                                  self.end_headers()
+                                  self.wfile.write(json.dumps({'value': data['secret']}).encode())
+                                  return
+                          self.send_response(404)
+                          self.end_headers()
+                      else:
+                          self.send_response(404)
+                          self.end_headers()
+                  def log_message(self, *a): pass
+              http.server.HTTPServer(('', 8080), H).serve_forever()
+          ports:
+            - containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-keycloak
+  namespace: ` + testNamespace + `
+spec:
+  selector:
+    app: mock-keycloak
+  ports:
+    - port: 8080
+      targetPort: 8080
+`
+}
+
+// authbridgeConfigFixture returns YAML for authbridge-config ConfigMap (for ClientRegistration tests).
+func authbridgeConfigFixture(spireEnabled bool) string {
+	spireEnabledStr := "false"
+	if spireEnabled {
+		spireEnabledStr = "true"
+	}
+	return `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: authbridge-config
+  namespace: ` + testNamespace + `
+data:
+  KEYCLOAK_URL: "http://mock-keycloak.` + testNamespace + `.svc:8080"
+  KEYCLOAK_REALM: "test"
+  SPIRE_ENABLED: "` + spireEnabledStr + `"
+`
+}
+
+// keycloakAdminSecretFixture returns YAML for keycloak-admin-secret (for ClientRegistration tests).
+func keycloakAdminSecretFixture() string {
+	return `apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-admin-secret
+  namespace: ` + testNamespace + `
+type: Opaque
+stringData:
+  KEYCLOAK_ADMIN_USERNAME: "admin"
+  KEYCLOAK_ADMIN_PASSWORD: "admin"
+`
+}
+
+// clientRegAgentFixture returns YAML for an agent Deployment for client registration tests (non-SPIRE).
+func clientRegAgentFixture() string {
+	return `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clientreg-agent
+  namespace: ` + testNamespace + `
+  labels:
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+    app.kubernetes.io/name: clientreg-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clientreg-agent
+      kagenti.io/type: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clientreg-agent
+        kagenti.io/type: agent
+        protocol.kagenti.io/a2a: ""
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+`
+}
+
+// clientRegAgentSpireFixture returns YAML for an agent Deployment for SPIRE-enabled client registration tests.
+func clientRegAgentSpireFixture() string {
+	return `apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: clientreg-spire-sa
+  namespace: ` + testNamespace + `
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clientreg-spire-agent
+  namespace: ` + testNamespace + `
+  labels:
+    kagenti.io/type: agent
+    protocol.kagenti.io/a2a: ""
+    app.kubernetes.io/name: clientreg-spire-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clientreg-spire-agent
+      kagenti.io/type: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clientreg-spire-agent
+        kagenti.io/type: agent
+        protocol.kagenti.io/a2a: ""
+    spec:
+      serviceAccountName: clientreg-spire-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.9
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+`
+}

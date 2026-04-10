@@ -119,17 +119,26 @@ func TestParsePlatformClientIDs(t *testing.T) {
 }
 
 func TestResolveKeycloakClientID(t *testing.T) {
-	id, err := resolveKeycloakClientID("ns1", "dep", "", false, "")
+	defaultTemplate := "spiffe://{{.TrustDomain}}/ns/{{.Namespace}}/sa/{{.ServiceAccount}}"
+
+	id, err := resolveKeycloakClientID("ns1", "dep", "", false, "", "")
 	if err != nil || id != "ns1/dep" {
 		t.Fatalf("non-spire: %q %v", id, err)
 	}
-	_, err = resolveKeycloakClientID("ns1", "dep", "", true, "example.org")
+	_, err = resolveKeycloakClientID("ns1", "dep", "", true, "example.org", defaultTemplate)
 	if err == nil {
 		t.Fatal("expected error for default SA with SPIRE")
 	}
-	id, err = resolveKeycloakClientID("ns1", "dep", "mysa", true, "example.org")
+	id, err = resolveKeycloakClientID("ns1", "dep", "mysa", true, "example.org", defaultTemplate)
 	if err != nil || id != "spiffe://example.org/ns/ns1/sa/mysa" {
 		t.Fatalf("spire: %q %v", id, err)
+	}
+
+	// Test custom template
+	customTemplate := "spiffe://{{.TrustDomain}}/workload/{{.Namespace}}/{{.ServiceAccount}}"
+	id, err = resolveKeycloakClientID("ns1", "dep", "mysa", true, "example.org", customTemplate)
+	if err != nil || id != "spiffe://example.org/workload/ns1/mysa" {
+		t.Fatalf("custom template: %q %v", id, err)
 	}
 }
 
