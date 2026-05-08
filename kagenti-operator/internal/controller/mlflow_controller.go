@@ -25,7 +25,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -34,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kagenti/operator/internal/mlflow"
@@ -74,22 +77,65 @@ type MLflowReconciler struct {
 // +kubebuilder:rbac:groups=mlflow.opendatahub.io,resources=mlflows,verbs=get;list;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=create;get;list;watch;update
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=apps,resources=statefulsets,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=agents.x-k8s.io,resources=sandboxes,verbs=get;list;watch;update;patch
 
 func (r *MLflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.V(1).Info("Reconciling MLflow for Deployment", "namespacedName", req.NamespacedName)
+	logger.V(1).Info("Reconciling MLflow", "namespacedName", req.NamespacedName)
 
 	dep := &appsv1.Deployment{}
-	if err := r.Get(ctx, req.NamespacedName, dep); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
+	if err := r.Get(ctx, req.NamespacedName, dep); err == nil {
+		return r.reconcileWorkload(ctx, dep, dep.GetLabels(),
+			dep.Spec.Template.Annotations, dep.Spec.Template.Spec.ServiceAccountName, dep.Name,
+			func(ctx context.Context, trackingURI, experimentID, experimentName string) error {
+				return r.configureDeployment(ctx, dep, trackingURI, experimentID, experimentName)
+			})
+	} else if !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
 	}
 
-	labels := dep.GetLabels()
+	sts := &appsv1.StatefulSet{}
+	if err := r.Get(ctx, req.NamespacedName, sts); err == nil {
+		return r.reconcileWorkload(ctx, sts, sts.GetLabels(),
+			sts.Spec.Template.Annotations, sts.Spec.Template.Spec.ServiceAccountName, sts.Name,
+			func(ctx context.Context, trackingURI, experimentID, experimentName string) error {
+				return r.configureStatefulSet(ctx, sts, trackingURI, experimentID, experimentName)
+			})
+	} else if !apierrors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+
+	sbx := &unstructured.Unstructured{}
+	sbx.SetGroupVersionKind(sandboxGVK)
+	if err := r.Get(ctx, req.NamespacedName, sbx); err != nil {
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+	annotations, _, _ := unstructured.NestedStringMap(sbx.Object, "spec", "podTemplate", "metadata", "annotations")
+	saName, _, _ := unstructured.NestedString(sbx.Object, "spec", "podTemplate", "spec", "serviceAccountName")
+	return r.reconcileWorkload(ctx, sbx, sbx.GetLabels(),
+		annotations, saName, sbx.GetName(),
+		func(ctx context.Context, trackingURI, experimentID, experimentName string) error {
+			return r.configureSandbox(ctx, sbx, trackingURI, experimentID, experimentName)
+		})
+}
+
+func (r *MLflowReconciler) reconcileWorkload(
+	ctx context.Context,
+	obj client.Object,
+	labels map[string]string,
+	annotations map[string]string,
+	serviceAccountName string,
+	workloadName string,
+	configure func(ctx context.Context, trackingURI, experimentID, experimentName string) error,
+) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
 	if labels == nil || labels[LabelAgentType] != LabelValueAgent {
 		return ctrl.Result{}, nil
 	}
 
-	if !dep.DeletionTimestamp.IsZero() {
+	if !obj.GetDeletionTimestamp().IsZero() {
 		return ctrl.Result{}, nil
 	}
 
@@ -99,9 +145,8 @@ func (r *MLflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, nil
 	}
 
-	experimentName := dep.Name
+	experimentName := workloadName
 
-	annotations := dep.Spec.Template.Annotations
 	if annotations != nil &&
 		annotations[AnnotationMLflowExperimentID] != "" &&
 		annotations[AnnotationMLflowExperimentName] == experimentName &&
@@ -111,11 +156,11 @@ func (r *MLflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	}
 
 	mlflowClient := r.mlflowClient(trackingURI)
-	experimentID, err := mlflowClient.CreateExperiment(ctx, experimentName, dep.Namespace)
+	experimentID, err := mlflowClient.CreateExperiment(ctx, experimentName, obj.GetNamespace())
 	if err != nil {
 		logger.Error(err, "Failed to create/get MLflow experiment", "name", experimentName)
 		if r.Recorder != nil {
-			r.Recorder.Eventf(dep, "Warning", "MLflowExperimentFailed",
+			r.Recorder.Eventf(obj, "Warning", "MLflowExperimentFailed",
 				"Failed to create MLflow experiment %q: %v", experimentName, err)
 		}
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -123,24 +168,24 @@ func (r *MLflowReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 
 	logger.Info("MLflow experiment ready", "name", experimentName, "id", experimentID)
 
-	saName := dep.Spec.Template.Spec.ServiceAccountName
+	saName := serviceAccountName
 	if saName == "" {
 		saName = "default"
-		logger.Info("deployment has no explicit serviceAccountName, falling back to 'default'", "deployment", dep.Name)
+		logger.Info("workload has no explicit serviceAccountName, falling back to 'default'", "workload", workloadName)
 	}
 
-	if err := r.ensureRoleBinding(ctx, dep, saName); err != nil {
+	if err := r.ensureRoleBinding(ctx, obj, saName); err != nil {
 		logger.Error(err, "Failed to ensure MLflow RoleBinding")
 		return ctrl.Result{}, err
 	}
 
-	if err := r.configureDeployment(ctx, dep, trackingURI, experimentID, experimentName); err != nil {
-		logger.Error(err, "Failed to configure Deployment with MLflow")
+	if err := configure(ctx, trackingURI, experimentID, experimentName); err != nil {
+		logger.Error(err, "Failed to configure workload with MLflow")
 		return ctrl.Result{}, err
 	}
 
 	if r.Recorder != nil {
-		r.Recorder.Eventf(dep, "Normal", "MLflowConfigured",
+		r.Recorder.Eventf(obj, "Normal", "MLflowConfigured",
 			"Experiment %q (ID: %s) provisioned, RoleBinding created for SA %s",
 			experimentName, experimentID, saName)
 	}
@@ -247,12 +292,12 @@ func (r *MLflowReconciler) configureDeployment(ctx context.Context, dep *appsv1.
 }
 
 // ensureRoleBinding creates or updates the RoleBinding for the agent SA.
-func (r *MLflowReconciler) ensureRoleBinding(ctx context.Context, dep *appsv1.Deployment, saName string) error {
-	rbName := fmt.Sprintf("kagenti-mlflow-%s", dep.Name)
+func (r *MLflowReconciler) ensureRoleBinding(ctx context.Context, owner client.Object, saName string) error {
+	rbName := fmt.Sprintf("kagenti-mlflow-%s", owner.GetName())
 	rb := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rbName,
-			Namespace: dep.Namespace,
+			Namespace: owner.GetNamespace(),
 		},
 	}
 
@@ -261,7 +306,7 @@ func (r *MLflowReconciler) ensureRoleBinding(ctx context.Context, dep *appsv1.De
 			LabelManagedBy: LabelManagedByValue,
 		}
 
-		if err := controllerutil.SetOwnerReference(dep, rb, r.Scheme); err != nil {
+		if err := controllerutil.SetOwnerReference(owner, rb, r.Scheme); err != nil {
 			return err
 		}
 
@@ -274,12 +319,126 @@ func (r *MLflowReconciler) ensureRoleBinding(ctx context.Context, dep *appsv1.De
 			{
 				Kind:      rbacv1.ServiceAccountKind,
 				Name:      saName,
-				Namespace: dep.Namespace,
+				Namespace: owner.GetNamespace(),
 			},
 		}
 		return nil
 	})
 	return err
+}
+
+// configureStatefulSet sets annotations and injects MLflow env vars into the StatefulSet.
+func (r *MLflowReconciler) configureStatefulSet(ctx context.Context, sts *appsv1.StatefulSet, trackingURI, experimentID, experimentName string) error {
+	logger := log.FromContext(ctx)
+
+	desired := mlflowEnvVars(trackingURI, experimentID, experimentName)
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &appsv1.StatefulSet{}
+		if err := r.Get(ctx, types.NamespacedName{Name: sts.Name, Namespace: sts.Namespace}, latest); err != nil {
+			return err
+		}
+
+		annotations := latest.Spec.Template.Annotations
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[AnnotationMLflowExperimentID] = experimentID
+		annotations[AnnotationMLflowExperimentName] = experimentName
+		annotations[AnnotationMLflowTrackingURI] = trackingURI
+		annotations[AnnotationMLflowTrackingAuth] = "kubernetes-namespaced"
+		latest.Spec.Template.Annotations = annotations
+
+		changed := false
+		for i := range latest.Spec.Template.Spec.Containers {
+			for name, value := range desired {
+				if setEnvVar(&latest.Spec.Template.Spec.Containers[i], name, value) {
+					changed = true
+				}
+			}
+		}
+
+		if changed {
+			logger.Info("Injected MLflow env vars into StatefulSet containers", "statefulset", sts.Name)
+		}
+
+		return r.Update(ctx, latest)
+	})
+}
+
+// configureSandbox sets annotations and injects MLflow env vars into a Sandbox resource.
+func (r *MLflowReconciler) configureSandbox(ctx context.Context, sbx *unstructured.Unstructured, trackingURI, experimentID, experimentName string) error {
+	logger := log.FromContext(ctx)
+
+	desired := mlflowEnvVars(trackingURI, experimentID, experimentName)
+
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &unstructured.Unstructured{}
+		latest.SetGroupVersionKind(sandboxGVK)
+		if err := r.Get(ctx, types.NamespacedName{Name: sbx.GetName(), Namespace: sbx.GetNamespace()}, latest); err != nil {
+			return err
+		}
+
+		annotations, _, _ := unstructured.NestedStringMap(latest.Object, "spec", "podTemplate", "metadata", "annotations")
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		annotations[AnnotationMLflowExperimentID] = experimentID
+		annotations[AnnotationMLflowExperimentName] = experimentName
+		annotations[AnnotationMLflowTrackingURI] = trackingURI
+		annotations[AnnotationMLflowTrackingAuth] = "kubernetes-namespaced"
+		if err := unstructured.SetNestedStringMap(latest.Object, annotations, "spec", "podTemplate", "metadata", "annotations"); err != nil {
+			return fmt.Errorf("failed to set annotations on Sandbox: %w", err)
+		}
+
+		containers, _, _ := unstructured.NestedSlice(latest.Object, "spec", "podTemplate", "spec", "containers")
+		changed := false
+		for i, c := range containers {
+			container, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			envSlice, _, _ := unstructured.NestedSlice(container, "env")
+			for name, value := range desired {
+				envSlice, _ = setUnstructuredEnvVar(envSlice, name, value)
+				changed = true
+			}
+			container["env"] = envSlice
+			containers[i] = container
+		}
+		if changed {
+			if err := unstructured.SetNestedSlice(latest.Object, containers, "spec", "podTemplate", "spec", "containers"); err != nil {
+				return fmt.Errorf("failed to set containers on Sandbox: %w", err)
+			}
+			logger.Info("Injected MLflow env vars into Sandbox containers", "sandbox", sbx.GetName())
+		}
+
+		return r.Update(ctx, latest)
+	})
+}
+
+// setUnstructuredEnvVar sets or adds an environment variable in an unstructured env slice.
+func setUnstructuredEnvVar(envSlice []interface{}, name, value string) ([]interface{}, bool) {
+	for i, e := range envSlice {
+		envVar, ok := e.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if envVar["name"] == name {
+			if envVar["value"] == value {
+				return envSlice, false
+			}
+			envVar["value"] = value
+			delete(envVar, "valueFrom")
+			envSlice[i] = envVar
+			return envSlice, true
+		}
+	}
+	envSlice = append(envSlice, map[string]interface{}{
+		"name":  name,
+		"value": value,
+	})
+	return envSlice, true
 }
 
 // setEnvVar sets an env var on a container, returning true if a change was made.
@@ -300,9 +459,24 @@ func setEnvVar(container *corev1.Container, name, value string) bool {
 
 // SetupWithManager registers the MLflow controller with the manager.
 func (r *MLflowReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		For(&appsv1.Deployment{}, builder.WithPredicates(agentLabelPredicate())).
-		Owns(&rbacv1.RoleBinding{}).
-		Named("mlflow").
-		Complete(r)
+		Watches(
+			&appsv1.StatefulSet{},
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(agentLabelPredicate()),
+		).
+		Owns(&rbacv1.RoleBinding{})
+
+	if SandboxCRDExists(mgr.GetConfig()) {
+		sandboxObj := &unstructured.Unstructured{}
+		sandboxObj.SetGroupVersionKind(sandboxGVK)
+		b = b.Watches(
+			sandboxObj,
+			&handler.EnqueueRequestForObject{},
+			builder.WithPredicates(agentLabelPredicate()),
+		)
+	}
+
+	return b.Named("mlflow").Complete(r)
 }
