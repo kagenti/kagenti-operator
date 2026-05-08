@@ -562,91 +562,6 @@ func perAgentConfigMapName(crName string) string {
 	return "authbridge-config-" + crName
 }
 
-// synthesizePipeline builds the per-plugin pipeline section that
-// maps 1:1 to NamespaceConfig (env-var-style authbridge-config
-// values). Used only when the namespace's authbridge-runtime-config
-// ConfigMap has no `pipeline:` of its own — typically a demo or
-// operator-managed namespace that bypassed the Kagenti Helm chart.
-//
-// The synthesized shape matches what plugins expect:
-//   - jwt-validation.config.issuer from NamespaceConfig.Issuer
-//     (for matching the JWT `iss` claim — the PUBLIC Keycloak URL in
-//     split-horizon deployments). keycloak_url + keycloak_realm are
-//     also passed through so the plugin can derive jwks_url from the
-//     INTERNAL URL — the sidecar actually GETs this URL from inside
-//     the cluster, and the public hostname typically won't resolve
-//     from inside the mesh. See kagenti-extensions#383 for why the
-//     jwt-validation plugin needs its own copy of these fields.
-//     Other plugin settings fall back to their own defaults —
-//     audience_file=/shared/client-id.txt, bypass_paths=standard
-//     probes.
-//   - token-exchange.config with Keycloak URL/realm, default_policy,
-//     and identity block keyed off ClientAuthType. File paths fall
-//     through to plugin defaults so operators don't have to
-//     boilerplate them.
-//
-// Empty NamespaceConfig fields are not emitted — the plugin's own
-// defaults apply. That matches the minimum-viable config shown in
-// authbridge/cmd/authbridge/README.md.
-func synthesizePipeline(nsConfig *NamespaceConfig) map[string]interface{} {
-	jwtCfg := map[string]interface{}{}
-	if nsConfig.Issuer != "" {
-		jwtCfg["issuer"] = nsConfig.Issuer
-	}
-	// Pass keycloak_url + keycloak_realm through to jwt-validation so
-	// it can derive jwks_url from the internal URL rather than the
-	// public issuer. Mirrors the pair already handed to token-exchange.
-	if nsConfig.KeycloakURL != "" {
-		jwtCfg["keycloak_url"] = nsConfig.KeycloakURL
-	}
-	if nsConfig.KeycloakRealm != "" {
-		jwtCfg["keycloak_realm"] = nsConfig.KeycloakRealm
-	}
-
-	tokenCfg := map[string]interface{}{}
-	if nsConfig.KeycloakURL != "" {
-		tokenCfg["keycloak_url"] = nsConfig.KeycloakURL
-	}
-	if nsConfig.KeycloakRealm != "" {
-		tokenCfg["keycloak_realm"] = nsConfig.KeycloakRealm
-	}
-	if nsConfig.DefaultOutboundPolicy != "" {
-		tokenCfg["default_policy"] = nsConfig.DefaultOutboundPolicy
-	}
-	// Identity: only set type (file paths default per-plugin). Spiffe
-	// mode carries over the jwt_svid_path explicitly because that
-	// default lives in the plugin only when the operator actually
-	// selected spiffe — the Helm chart reads ClientAuthType to pick.
-	if nsConfig.ClientAuthType != "" {
-		identity := map[string]interface{}{}
-		if nsConfig.ClientAuthType == ClientAuthTypeFederatedJWT {
-			identity["type"] = IdentityTypeSpiffe
-		} else {
-			identity["type"] = nsConfig.ClientAuthType
-		}
-		tokenCfg["identity"] = identity
-	}
-
-	return map[string]interface{}{
-		"inbound": map[string]interface{}{
-			"plugins": []interface{}{
-				map[string]interface{}{
-					"name":   "jwt-validation",
-					"config": jwtCfg,
-				},
-			},
-		},
-		"outbound": map[string]interface{}{
-			"plugins": []interface{}{
-				map[string]interface{}{
-					"name":   "token-exchange",
-					"config": tokenCfg,
-				},
-			},
-		},
-	}
-}
-
 // ensurePerAgentConfigMap creates or updates a per-agent ConfigMap that merges the
 // namespace-level authbridge-runtime-config with per-agent overrides (mode, listener
 // addresses). The authbridge sidecar mounts this instead of the shared ConfigMap.
@@ -672,25 +587,53 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 		}
 	}
 
-	// If the base YAML has no `pipeline:` section, synthesize one
-	// from NamespaceConfig. Happens in two cases:
-	//
-	//   1. baseYAML was empty (namespace has no authbridge-runtime-
-	//      config ConfigMap at all).
-	//   2. baseYAML was present but stale pre-migration shape — the
-	//      parse succeeded but yielded top-level `inbound:` /
-	//      `outbound:` / etc., which the authbridge binary now
-	//      rejects at Validate time. Any top-level key the parser
-	//      found is left alone and ignored; the synthesized
-	//      `pipeline:` is what authbridge actually reads.
-	//
-	// When the base YAML already has `pipeline:` (Kagenti Helm chart
-	// emits it), this branch is skipped and we only layer mode +
-	// listener overrides on top — the chart owns the plugin config
-	// contents. See authbridge/authlib/plugins/CONVENTIONS.md for
-	// the per-plugin config schema.
-	if cfg["pipeline"] == nil && nsConfig != nil {
-		cfg["pipeline"] = synthesizePipeline(nsConfig)
+	// If the base was empty or missing key fields, populate from NamespaceConfig
+	if cfg["inbound"] == nil && nsConfig != nil {
+		inbound := map[string]interface{}{}
+		if nsConfig.Issuer != "" {
+			inbound["issuer"] = nsConfig.Issuer
+		}
+		if len(inbound) > 0 {
+			cfg["inbound"] = inbound
+		}
+	}
+	if cfg["outbound"] == nil && nsConfig != nil {
+		outbound := map[string]interface{}{}
+		if nsConfig.KeycloakURL != "" {
+			outbound["keycloak_url"] = nsConfig.KeycloakURL
+		}
+		if nsConfig.KeycloakRealm != "" {
+			outbound["keycloak_realm"] = nsConfig.KeycloakRealm
+		}
+		if nsConfig.DefaultOutboundPolicy != "" {
+			outbound["default_policy"] = nsConfig.DefaultOutboundPolicy
+		}
+		if len(outbound) > 0 {
+			cfg["outbound"] = outbound
+		}
+	}
+	if cfg["identity"] == nil && nsConfig != nil && nsConfig.ClientAuthType != "" {
+		identity := map[string]interface{}{
+			"client_id_file":     "/shared/client-id.txt",
+			"client_secret_file": "/shared/client-secret.txt",
+		}
+		if nsConfig.ClientAuthType == ClientAuthTypeFederatedJWT {
+			identity["type"] = IdentityTypeSpiffe
+			identity["jwt_svid_path"] = "/opt/jwt_svid.token"
+		} else {
+			identity["type"] = nsConfig.ClientAuthType
+		}
+		cfg["identity"] = identity
+	}
+	if cfg["bypass"] == nil {
+		cfg["bypass"] = map[string]interface{}{
+			"inbound_paths": []string{
+				"/.well-known/*",
+				"/healthz",
+				"/readyz",
+				"/livez",
+			},
+		}
 	}
 
 	// Override mode

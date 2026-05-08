@@ -908,20 +908,21 @@ metadata:
 data:
   config.yaml: |
     mode: envoy-sidecar
-    pipeline:
-      inbound:
-        plugins:
-          - name: jwt-validation
-            config:
-              issuer: "https://keycloak.example.com/realms/test"
-      outbound:
-        plugins:
-          - name: token-exchange
-            config:
-              token_url: "https://keycloak.example.com/realms/test/protocol/openid-connect/token"
-              default_policy: "passthrough"
-              identity:
-                type: client-secret
+    inbound:
+      issuer: "https://keycloak.example.com/realms/test"
+    outbound:
+      token_url: "https://keycloak.example.com/realms/test/protocol/openid-connect/token"
+      default_policy: "passthrough"
+    identity:
+      type: client-secret
+      client_id_file: "/shared/client-id.txt"
+      client_secret_file: "/shared/client-secret.txt"
+    bypass:
+      inbound_paths:
+        - "/.well-known/*"
+        - "/healthz"
+        - "/readyz"
+        - "/livez"
 `
 }
 
@@ -1307,20 +1308,21 @@ metadata:
 data:
   config.yaml: |
     mode: envoy-sidecar
-    pipeline:
-      inbound:
-        plugins:
-          - name: jwt-validation
-            config:
-              issuer: "https://keycloak.example.com/realms/test"
-      outbound:
-        plugins:
-          - name: token-exchange
-            config:
-              token_url: "https://keycloak.example.com/realms/test/protocol/openid-connect/token"
-              default_policy: "passthrough"
-              identity:
-                type: client-secret
+    inbound:
+      issuer: "https://keycloak.example.com/realms/test"
+    outbound:
+      token_url: "https://keycloak.example.com/realms/test/protocol/openid-connect/token"
+      default_policy: "passthrough"
+    identity:
+      type: client-secret
+      client_id_file: "/shared/client-id.txt"
+      client_secret_file: "/shared/client-secret.txt"
+    bypass:
+      inbound_paths:
+        - "/.well-known/*"
+        - "/healthz"
+        - "/readyz"
+        - "/livez"
 `
 }
 
