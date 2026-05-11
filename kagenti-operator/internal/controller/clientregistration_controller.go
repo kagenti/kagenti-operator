@@ -30,6 +30,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/yaml"
 
+	"github.com/go-logr/logr"
+
+	agentv1alpha1 "github.com/kagenti/operator/api/v1alpha1"
 	"github.com/kagenti/operator/internal/clientreg"
 	"github.com/kagenti/operator/internal/keycloak"
 )
@@ -50,6 +53,13 @@ const (
 	AnnotationKeycloakClientSecretName = clientreg.AnnotationKeycloakClientSecretName
 )
 
+// SpireClient is an interface for fetching JWT-SVIDs from SPIRE Agent.
+// This allows for testing and mocking.
+type SpireClient interface {
+	// FetchJWTSVID fetches a JWT-SVID with the given audience.
+	FetchJWTSVID(ctx context.Context, audience string) (jwtToken string, expiresAt time.Time, err error)
+}
+
 // ClientRegistrationReconciler registers OAuth clients in Keycloak and patches agent/tool workloads that
 // use the default path (label absent or not "true") so the webhook injects envoy/SPIRE without the
 // legacy registration sidecar. The Secret is created before the pod template annotation is set so new Pods
@@ -69,7 +79,15 @@ type ClientRegistrationReconciler struct {
 	SpireTrustDomain string
 	// KeycloakAdminTokenCache caches admin password-grant tokens by Keycloak URL and credentials to
 	// avoid a token request on every reconcile. If nil, PasswordGrantToken is used without caching.
+	// Only used when UseDCR is false.
 	KeycloakAdminTokenCache *keycloak.CachedAdminTokenProvider
+
+	// UseDCR enables Dynamic Client Registration with JWT-SVID instead of admin credentials.
+	// When true, SpireClient must be set.
+	UseDCR bool
+	// SpireClient is used to fetch JWT-SVIDs for DCR authentication.
+	// Only used when UseDCR is true.
+	SpireClient SpireClient
 }
 
 func (r *ClientRegistrationReconciler) uncachedReader() client.Reader {
@@ -211,24 +229,6 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	// Read keycloak-admin-secret from the operator's namespace, not from agent namespace.
-	// This prevents Keycloak admin credentials from being replicated to every agent namespace,
-	// which would be a security risk if an agent namespace is compromised.
-	adminSecret := &corev1.Secret{}
-	if err := r.uncachedReader().Get(ctx, types.NamespacedName{Namespace: r.OperatorNamespace, Name: keycloakAdminSecret}, adminSecret); err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("waiting for keycloak-admin-secret", "namespace", r.OperatorNamespace)
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
-	adminUser := string(adminSecret.Data["KEYCLOAK_ADMIN_USERNAME"])
-	adminPass := string(adminSecret.Data["KEYCLOAK_ADMIN_PASSWORD"])
-	if adminUser == "" || adminPass == "" {
-		logger.Info("keycloak-admin-secret missing username/password keys")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
 	spireEnabled := strings.EqualFold(strings.TrimSpace(ab.SpireEnabled), "true")
 	clientName := ns + "/" + workloadName
 	clientID, err := resolveKeycloakClientID(ns, workloadName, template.Spec.ServiceAccountName, spireEnabled, r.SpireTrustDomain)
@@ -244,28 +244,23 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	tokenExch := strings.TrimSpace(ab.KeycloakTokenExchangeEnabled) != "false"
 	audienceScopeOn := strings.TrimSpace(ab.KeycloakAudienceScopeEnabled) != "false"
 
-	kc := keycloak.Admin{BaseURL: ab.KeycloakURL, HTTPClient: keycloak.DefaultHTTPClient()}
-	var token string
-	if r.KeycloakAdminTokenCache != nil {
-		token, err = r.KeycloakAdminTokenCache.Token(ctx, &kc, adminUser, adminPass)
+	var clientSecret string
+	if r.UseDCR {
+		// DCR path: Use SPIFFE JWT-SVID for authentication
+		clientSecret, err = r.registerClientWithDCR(ctx, logger, ab, clientID, clientName, authType, tokenExch)
+		if err != nil {
+			logger.Error(err, "DCR client registration failed", "clientId", clientID)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		logger.Info("Client registered via DCR", "clientId", clientID, "method", "jwt-svid")
 	} else {
-		token, err = kc.PasswordGrantToken(ctx, adminUser, adminPass)
-	}
-	if err != nil {
-		logger.Error(err, "Keycloak admin token failed")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-	_, clientSecret, err := kc.RegisterOrFetchClientWithToken(ctx, token, keycloak.ClientRegistrationParams{
-		Realm:               ab.KeycloakRealm,
-		ClientID:            clientID,
-		ClientName:          clientName,
-		ClientAuthType:      authType,
-		SpiffeIDPAlias:      ab.SpiffeIDPAlias,
-		TokenExchangeEnable: tokenExch,
-	})
-	if err != nil {
-		logger.Error(err, "Keycloak client registration failed", "clientId", clientID)
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		// Admin credentials path: Read keycloak-admin-secret from operator namespace
+		clientSecret, err = r.registerClientWithAdminCreds(ctx, logger, ab, clientID, clientName, authType, tokenExch, audienceScopeOn)
+		if err != nil {
+			logger.Error(err, "Client registration with admin creds failed", "clientId", clientID)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		logger.Info("Client registered via admin API", "clientId", clientID, "method", "admin-credentials")
 	}
 
 	if err := kc.EnsureAudienceScope(ctx, token, keycloak.AudienceParams{
@@ -471,6 +466,113 @@ func clientRegistrationWorkloadPredicate(obj client.Object) bool {
 	default:
 		return false
 	}
+}
+
+// registerClientWithDCR registers a Keycloak client using Dynamic Client Registration with JWT-SVID.
+func (r *ClientRegistrationReconciler) registerClientWithDCR(
+	ctx context.Context,
+	logger logr.Logger,
+	ab *authBridgeConfig,
+	clientID, clientName, authType string,
+	tokenExch bool,
+) (clientSecret string, err error) {
+	if r.SpireClient == nil {
+		return "", fmt.Errorf("DCR enabled but SPIRE client not initialized")
+	}
+
+	// Fetch JWT-SVID from SPIRE with Keycloak as the audience
+	// The audience should match what Keycloak expects for DCR authentication
+	audience := ab.KeycloakURL + "/realms/" + ab.KeycloakRealm
+	jwtSVID, _, err := r.SpireClient.FetchJWTSVID(ctx, audience)
+	if err != nil {
+		return "", fmt.Errorf("fetch JWT-SVID for DCR: %w", err)
+	}
+
+	// Use DCR client to register
+	dcrClient := keycloak.DCRClient{
+		BaseURL:    ab.KeycloakURL,
+		HTTPClient: keycloak.DefaultHTTPClient(),
+	}
+
+	secret, _, err := dcrClient.RegisterClientWithJWTSVID(ctx, jwtSVID, keycloak.ClientRegistrationParams{
+		Realm:               ab.KeycloakRealm,
+		ClientID:            clientID,
+		ClientName:          clientName,
+		ClientAuthType:      authType,
+		SpiffeIDPAlias:      ab.SpiffeIDPAlias,
+		TokenExchangeEnable: tokenExch,
+	})
+	if err != nil {
+		return "", fmt.Errorf("DCR registration: %w", err)
+	}
+
+	logger.V(1).Info("DCR registration succeeded", "clientId", clientID, "audience", audience)
+	return secret, nil
+}
+
+// registerClientWithAdminCreds registers a Keycloak client using admin credentials (legacy path).
+func (r *ClientRegistrationReconciler) registerClientWithAdminCreds(
+	ctx context.Context,
+	logger logr.Logger,
+	ab *authBridgeConfig,
+	clientID, clientName, authType string,
+	tokenExch, audienceScopeOn bool,
+) (clientSecret string, err error) {
+	// Read keycloak-admin-secret from the operator's namespace
+	adminSecret := &corev1.Secret{}
+	if err := r.uncachedReader().Get(ctx, types.NamespacedName{
+		Namespace: r.OperatorNamespace,
+		Name:      keycloakAdminSecret,
+	}, adminSecret); err != nil {
+		if apierrors.IsNotFound(err) {
+			return "", fmt.Errorf("keycloak-admin-secret not found in namespace %s", r.OperatorNamespace)
+		}
+		return "", fmt.Errorf("get keycloak-admin-secret: %w", err)
+	}
+
+	adminUser := string(adminSecret.Data["KEYCLOAK_ADMIN_USERNAME"])
+	adminPass := string(adminSecret.Data["KEYCLOAK_ADMIN_PASSWORD"])
+	if adminUser == "" || adminPass == "" {
+		return "", fmt.Errorf("keycloak-admin-secret missing username/password keys")
+	}
+
+	// Get admin token
+	kc := keycloak.Admin{BaseURL: ab.KeycloakURL, HTTPClient: keycloak.DefaultHTTPClient()}
+	var token string
+	if r.KeycloakAdminTokenCache != nil {
+		token, err = r.KeycloakAdminTokenCache.Token(ctx, &kc, adminUser, adminPass)
+	} else {
+		token, err = kc.PasswordGrantToken(ctx, adminUser, adminPass)
+	}
+	if err != nil {
+		return "", fmt.Errorf("get admin token: %w", err)
+	}
+
+	// Register client
+	_, secret, err := kc.RegisterOrFetchClientWithToken(ctx, token, keycloak.ClientRegistrationParams{
+		Realm:               ab.KeycloakRealm,
+		ClientID:            clientID,
+		ClientName:          clientName,
+		ClientAuthType:      authType,
+		SpiffeIDPAlias:      ab.SpiffeIDPAlias,
+		TokenExchangeEnable: tokenExch,
+	})
+	if err != nil {
+		return "", fmt.Errorf("register client: %w", err)
+	}
+
+	// Ensure audience scope (only for admin path)
+	if err := kc.EnsureAudienceScope(ctx, token, keycloak.AudienceParams{
+		Realm:                ab.KeycloakRealm,
+		ClientName:           clientName,
+		AudienceClientID:     clientID,
+		PlatformClientIDs:    parsePlatformClientIDs(ab.PlatformClientIDs),
+		AudienceScopeEnabled: audienceScopeOn,
+	}); err != nil {
+		logger.Error(err, "audience scope management failed (credentials will still be written)", "clientId", clientID)
+	}
+
+	return secret, nil
 }
 
 // SetupWithManager registers the controller. injectTools is resolved at reconcile time from cluster

@@ -50,6 +50,7 @@ import (
 	"github.com/kagenti/operator/internal/keycloak"
 	"github.com/kagenti/operator/internal/mlflow"
 	"github.com/kagenti/operator/internal/signature"
+	spireclient "github.com/kagenti/operator/internal/spire"
 	"github.com/kagenti/operator/internal/tekton"
 	webhookconfig "github.com/kagenti/operator/internal/webhook/config"
 	"github.com/kagenti/operator/internal/webhook/injector"
@@ -93,6 +94,8 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 
 	var enableClientRegistration bool
+	var enableDCRRegistration bool
+	var spireSocketPath string
 	var configPath string
 	var featureGatesPath string
 
@@ -132,6 +135,10 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&enableClientRegistration, "enable-client-registration", true,
 		"Enable operator-managed Keycloak client registration for agent/tool workloads")
+	flag.BoolVar(&enableDCRRegistration, "enable-dcr-registration", false,
+		"Use SPIFFE-based Dynamic Client Registration instead of admin credentials (experimental)")
+	flag.StringVar(&spireSocketPath, "spire-socket-path", "unix:///run/spire/sockets/agent.sock",
+		"Path to SPIRE Agent workload API socket (for DCR JWT-SVID authentication)")
 	flag.StringVar(&configPath, "config-path", "/etc/kagenti/config.yaml", "Path to platform config file")
 	flag.StringVar(&featureGatesPath, "feature-gates-path",
 		"/etc/kagenti/feature-gates/feature-gates.yaml", "Path to feature gates config file")
@@ -458,16 +465,34 @@ func main() {
 
 	if enableClientRegistration {
 		operatorNS := getOperatorNamespace()
-		setupLog.Info("Client registration controller will read keycloak-admin-secret from operator namespace",
-			"namespace", operatorNS)
-		if err = (&controller.ClientRegistrationReconciler{
+
+		reconciler := &controller.ClientRegistrationReconciler{
 			Client:                  mgr.GetClient(),
 			APIReader:               mgr.GetAPIReader(),
 			Scheme:                  mgr.GetScheme(),
 			OperatorNamespace:       operatorNS,
 			SpireTrustDomain:        spireTrustDomain,
 			KeycloakAdminTokenCache: &keycloak.CachedAdminTokenProvider{},
-		}).SetupWithManager(mgr); err != nil {
+			UseDCR:                  enableDCRRegistration,
+		}
+
+		if enableDCRRegistration {
+			// Initialize SPIRE client for DCR authentication
+			spireClient := spireclient.NewClient(spireSocketPath)
+			if err := spireClient.Connect(ctx); err != nil {
+				setupLog.Error(err, "failed to connect to SPIRE agent", "socketPath", spireSocketPath)
+				setupLog.Info("DCR requires SPIRE agent connection. Ensure SPIRE agent socket is mounted.")
+				os.Exit(1)
+			}
+			reconciler.SpireClient = spireClient
+			setupLog.Info("DCR mode enabled: using SPIFFE JWT-SVID for client registration",
+				"spireSocket", spireSocketPath)
+		} else {
+			setupLog.Info("Client registration controller will read keycloak-admin-secret from operator namespace",
+				"namespace", operatorNS)
+		}
+
+		if err = reconciler.SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")
 			os.Exit(1)
 		}
