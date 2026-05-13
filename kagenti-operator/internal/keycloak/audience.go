@@ -275,7 +275,25 @@ func (a *Admin) updateAudienceMapperIfNeeded(ctx context.Context, token, realm, 
 		mappers[i].Config["included.custom.audience"] = audience
 		return a.putAudienceMapper(ctx, token, realm, scopeID, mappers[i])
 	}
-	return fmt.Errorf("no matching audience mapper found for scope %q (scopeID %s)", scopeName, scopeID)
+
+	// No oidc-audience-mapper found. A mapper with the same name but a different
+	// protocolMapper type caused the 409 conflict. Delete it and recreate correctly.
+	for i := range mappers {
+		if mappers[i].Name != scopeName {
+			continue
+		}
+		if err := a.deleteMapper(ctx, token, realm, scopeID, mappers[i].ID); err != nil {
+			return fmt.Errorf("delete stale mapper %q (id %s): %w", scopeName, mappers[i].ID, err)
+		}
+		return a.ensureAudienceMapper(ctx, token, realm, scopeID, scopeName, audience)
+	}
+
+	// Scope has no mappers matching the expected name. The 409 may be a Keycloak
+	// realm-level name collision (another scope once held this mapper) or a concurrent
+	// reconcile that hasn't committed. Either way, the mapper doesn't exist here and
+	// we can't create it — return nil and let verifyAudienceMapper handle it on the
+	// next reconcile (it calls ensureAudienceMapper without the 409 loop).
+	return nil
 }
 
 func (a *Admin) putAudienceMapper(ctx context.Context, token, realm, scopeID string, mapper protocolMapperRep) error {
@@ -302,6 +320,28 @@ func (a *Admin) putAudienceMapper(ctx context.Context, token, realm, scopeID str
 	}
 	body, _ := io.ReadAll(resp.Body)
 	return fmt.Errorf("keycloak update audience mapper: status %d: %s", resp.StatusCode, truncate(body, 256))
+}
+
+
+func (a *Admin) deleteMapper(ctx context.Context, token, realm, scopeID, mapperID string) error {
+	base := trimBaseURL(a.BaseURL)
+	endpoint := base + "/admin/realms/" + url.PathEscape(realm) + "/client-scopes/" +
+		url.PathEscape(scopeID) + "/protocol-mappers/models/" + url.PathEscape(mapperID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := a.httpc().Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotFound {
+		return nil
+	}
+	body, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("keycloak delete mapper: status %d: %s", resp.StatusCode, truncate(body, 256))
 }
 
 // verifyAudienceMapper is a defense-in-depth check that runs on every reconcile.

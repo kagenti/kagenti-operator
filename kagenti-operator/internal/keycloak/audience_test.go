@@ -353,6 +353,208 @@ func TestEnsureAudienceScope_VerifyRecreatesMissingMapper(t *testing.T) {
 	}
 }
 
+// TestEnsureAudienceScope_DeletesWrongTypeMapper verifies that when a mapper with the
+// correct name exists but has the wrong protocolMapper type (not oidc-audience-mapper),
+// the operator deletes it and recreates the correct mapper. This is the fix for #358.
+func TestEnsureAudienceScope_DeletesWrongTypeMapper(t *testing.T) {
+	var deleteMapperCalls, recreatePostCalls int
+	spiffeURI := "spiffe://example.org/ns/ns/sa/wl"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == testMasterRealmTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok"})
+
+		// Scope already exists
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]clientScopeListItem{{ID: "scope-123", Name: "agent-ns-wl-aud"}})
+
+		// ensureAudienceMapper POST — 409 conflict (mapper name taken)
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodPost:
+			if deleteMapperCalls > 0 {
+				// After delete, the POST succeeds
+				recreatePostCalls++
+				w.WriteHeader(http.StatusCreated)
+			} else {
+				w.WriteHeader(http.StatusConflict)
+			}
+
+		// GET mappers — returns a mapper with wrong type (e.g. "oidc-hardcoded-claim-mapper")
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodGet:
+			if deleteMapperCalls > 0 {
+				// After delete+recreate, verify sees the correct mapper
+				_ = json.NewEncoder(w).Encode([]protocolMapperRep{{
+					ID: "m-new", Name: "agent-ns-wl-aud", Protocol: "openid-connect",
+					ProtocolMapper: "oidc-audience-mapper",
+					Config:         map[string]string{"included.custom.audience": spiffeURI},
+				}})
+			} else {
+				_ = json.NewEncoder(w).Encode([]protocolMapperRep{{
+					ID:             "mapper-stale",
+					Name:           "agent-ns-wl-aud",
+					Protocol:       "openid-connect",
+					ProtocolMapper: "oidc-hardcoded-claim-mapper", // WRONG TYPE
+					Config:         map[string]string{"claim.value": "something"},
+				}})
+			}
+
+		// DELETE the stale mapper
+		case strings.Contains(path, "/protocol-mappers/models/mapper-stale") && r.Method == http.MethodDelete:
+			deleteMapperCalls++
+			w.WriteHeader(http.StatusNoContent)
+
+		// Realm default scope
+		case path == "/admin/realms/kagenti/default-default-client-scopes/scope-123" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, path)
+		}
+	}))
+	defer srv.Close()
+
+	a := Admin{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	token, err := a.PasswordGrantToken(context.Background(), "u", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = a.EnsureAudienceScope(context.Background(), token, AudienceParams{
+		Realm:                "kagenti",
+		ClientName:           "ns/wl",
+		AudienceClientID:     spiffeURI,
+		AudienceScopeEnabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if deleteMapperCalls != 1 {
+		t.Fatalf("expected 1 DELETE call for stale mapper, got %d", deleteMapperCalls)
+	}
+	if recreatePostCalls != 1 {
+		t.Fatalf("expected 1 POST call to recreate mapper after delete, got %d", recreatePostCalls)
+	}
+}
+
+// TestEnsureAudienceScope_PhantomConflict409 verifies that when the mapper POST
+// returns 409 but the scope's mapper list is empty (phantom Keycloak conflict from
+// concurrent reconcile or realm-level name collision), the function returns nil
+// instead of entering an error loop. The verifyAudienceMapper defense-in-depth will
+// retry on the next reconcile.
+func TestEnsureAudienceScope_PhantomConflict409(t *testing.T) {
+	var postCalls, getCalls int
+	spiffeURI := "spiffe://example.org/ns/ns/sa/wl"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == testMasterRealmTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok"})
+
+		// Scope already exists
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]clientScopeListItem{{ID: "scope-123", Name: "agent-ns-wl-aud"}})
+
+		// POST mapper always returns 409 (persistent realm-level collision)
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodPost:
+			postCalls++
+			w.WriteHeader(http.StatusConflict)
+
+		// GET mappers — empty (the mapper doesn't actually exist in this scope)
+		// Second GET (from verifyAudienceMapper) also empty — triggers ensureAudienceMapper
+		// which hits 409 again and returns nil
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodGet:
+			getCalls++
+			_ = json.NewEncoder(w).Encode([]protocolMapperRep{})
+
+		// Realm default scope
+		case path == "/admin/realms/kagenti/default-default-client-scopes/scope-123" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, path)
+		}
+	}))
+	defer srv.Close()
+
+	a := Admin{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	token, err := a.PasswordGrantToken(context.Background(), "u", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = a.EnsureAudienceScope(context.Background(), token, AudienceParams{
+		Realm:                "kagenti",
+		ClientName:           "ns/wl",
+		AudienceClientID:     spiffeURI,
+		AudienceScopeEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error (phantom 409 should not loop), got: %v", err)
+	}
+	if postCalls < 1 {
+		t.Fatalf("expected at least 1 POST attempt, got %d", postCalls)
+	}
+}
+
+// TestEnsureAudienceScope_ConcurrentCreate409 verifies that when both the initial
+// and retry POST return 409 (concurrent reconcile created the mapper), the operator
+// treats it as success rather than entering an error loop.
+func TestEnsureAudienceScope_ConcurrentCreate409(t *testing.T) {
+	spiffeURI := "spiffe://example.org/ns/ns/sa/wl"
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == testMasterRealmTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok"})
+
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]clientScopeListItem{{ID: "scope-123", Name: "agent-ns-wl-aud"}})
+
+		// All POSTs return 409 (concurrent reconcile already created it)
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusConflict)
+
+		// GET mappers — empty during updateAudienceMapperIfNeeded (race: mapper not yet visible)
+		// but present during verifyAudienceMapper (transaction committed)
+		case strings.Contains(path, "/client-scopes/scope-123/protocol-mappers/models") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]protocolMapperRep{{
+				ID: "m-concurrent", Name: "agent-ns-wl-aud", Protocol: "openid-connect",
+				ProtocolMapper: "oidc-audience-mapper",
+				Config:         map[string]string{"included.custom.audience": spiffeURI},
+			}})
+
+		case path == "/admin/realms/kagenti/default-default-client-scopes/scope-123" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, path)
+		}
+	}))
+	defer srv.Close()
+
+	a := Admin{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	token, err := a.PasswordGrantToken(context.Background(), "u", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = a.EnsureAudienceScope(context.Background(), token, AudienceParams{
+		Realm:                "kagenti",
+		ClientName:           "ns/wl",
+		AudienceClientID:     spiffeURI,
+		AudienceScopeEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("expected success when concurrent reconcile created mapper, got: %v", err)
+	}
+}
+
 func TestEnsureAudienceScope_Disabled(t *testing.T) {
 	a := Admin{}
 	err := a.EnsureAudienceScope(context.Background(), "t", AudienceParams{AudienceScopeEnabled: false})
