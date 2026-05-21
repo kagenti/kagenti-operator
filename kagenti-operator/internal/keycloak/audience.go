@@ -322,7 +322,6 @@ func (a *Admin) putAudienceMapper(ctx context.Context, token, realm, scopeID str
 	return fmt.Errorf("keycloak update audience mapper: status %d: %s", resp.StatusCode, truncate(body, 256))
 }
 
-
 func (a *Admin) deleteMapper(ctx context.Context, token, realm, scopeID, mapperID string) error {
 	base := trimBaseURL(a.BaseURL)
 	endpoint := base + "/admin/realms/" + url.PathEscape(realm) + "/client-scopes/" +
