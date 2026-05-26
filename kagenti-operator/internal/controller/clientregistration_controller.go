@@ -263,16 +263,8 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		logger.Info("Client registered via admin API", "clientId", clientID, "method", "admin-credentials")
 	}
 
-	if err := kc.EnsureAudienceScope(ctx, token, keycloak.AudienceParams{
-		Realm:                ab.KeycloakRealm,
-		ClientName:           clientName,
-		AudienceClientID:     clientID,
-		PlatformClientIDs:    parsePlatformClientIDs(ab.PlatformClientIDs),
-		AudienceScopeEnabled: audienceScopeOn,
-	}); err != nil {
-		logger.Error(err, "Keycloak audience scope management failed (credentials will still be written)",
-			"clientId", clientID)
-	}
+	// Audience scope is handled inside registerClientWithAdminCreds for the admin path
+	// DCR path doesn't support audience scope management yet
 
 	secretName := keycloakClientCredentialsSecretName(ns, workloadName)
 	if err := r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
@@ -472,7 +464,7 @@ func clientRegistrationWorkloadPredicate(obj client.Object) bool {
 func (r *ClientRegistrationReconciler) registerClientWithDCR(
 	ctx context.Context,
 	logger logr.Logger,
-	ab *authBridgeConfig,
+	ab authbridgeConfig,
 	clientID, clientName, authType string,
 	tokenExch bool,
 ) (clientSecret string, err error) {
@@ -514,7 +506,7 @@ func (r *ClientRegistrationReconciler) registerClientWithDCR(
 func (r *ClientRegistrationReconciler) registerClientWithAdminCreds(
 	ctx context.Context,
 	logger logr.Logger,
-	ab *authBridgeConfig,
+	ab authbridgeConfig,
 	clientID, clientName, authType string,
 	tokenExch, audienceScopeOn bool,
 ) (clientSecret string, err error) {

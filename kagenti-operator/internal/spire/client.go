@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 )
 
@@ -73,7 +74,10 @@ func (c *Client) FetchJWTSVID(ctx context.Context, audience string) (jwtToken st
 	}
 
 	// Fetch JWT-SVID with the specified audience
-	jwtSVID, err := c.client.FetchJWTSVID(ctx, workloadapi.WithAudience(audience))
+	params := jwtsvid.Params{
+		Audience: audience,
+	}
+	jwtSVID, err := c.client.FetchJWTSVID(ctx, params)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("fetch JWT-SVID: %w", err)
 	}
@@ -90,7 +94,10 @@ func (c *Client) FetchJWTSVIDs(ctx context.Context, audiences []string) (map[str
 
 	result := make(map[string]string)
 	for _, aud := range audiences {
-		jwtSVID, err := c.client.FetchJWTSVID(ctx, workloadapi.WithAudience(aud))
+		params := jwtsvid.Params{
+			Audience: aud,
+		}
+		jwtSVID, err := c.client.FetchJWTSVID(ctx, params)
 		if err != nil {
 			return nil, fmt.Errorf("fetch JWT-SVID for audience %s: %w", aud, err)
 		}

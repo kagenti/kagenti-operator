@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 )
 
 // DCRClient implements Dynamic Client Registration using JWT-SVID authentication
