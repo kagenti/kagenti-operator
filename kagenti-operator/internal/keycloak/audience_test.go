@@ -79,6 +79,127 @@ func TestEnsureAudienceScope(t *testing.T) {
 	}
 }
 
+// TestEnsureAudienceScope_AttachesToAgentClient verifies that when AgentClientUUID is set,
+// the audience scope is explicitly attached to the agent's own client as a default-client-scope
+// (in addition to the realm default-default registration). This is required because Keycloak
+// does not retroactively attach realm default-defaults to clients that already exist.
+func TestEnsureAudienceScope_AttachesToAgentClient(t *testing.T) {
+	var putAgentClientCalls, putPlatformClientCalls int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == testMasterRealmTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok"})
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]clientScopeListItem{})
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodPost:
+			w.Header().Set("Location", srv.URL+"/admin/realms/kagenti/client-scopes/new-scope-id")
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(path, "/client-scopes/new-scope-id/protocol-mappers/models") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(path, "/client-scopes/new-scope-id/protocol-mappers/models") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]protocolMapperRep{{
+				ID: "m1", Name: "agent-ns-wl-aud", Protocol: "openid-connect",
+				ProtocolMapper: "oidc-audience-mapper",
+				Config:         map[string]string{"included.custom.audience": "ns/wl"},
+			}})
+		case path == "/admin/realms/kagenti/default-default-client-scopes/new-scope-id" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(path, "/admin/realms/kagenti/clients") && r.Method == http.MethodGet && r.URL.Query().Get("clientId") == "kagenti":
+			_ = json.NewEncoder(w).Encode([]map[string]string{{"id": "plat-int", "clientId": "kagenti"}})
+		case path == "/admin/realms/kagenti/clients/agent-uuid-123/default-client-scopes/new-scope-id" && r.Method == http.MethodPut:
+			putAgentClientCalls++
+			w.WriteHeader(http.StatusNoContent)
+		case path == "/admin/realms/kagenti/clients/plat-int/default-client-scopes/new-scope-id" && r.Method == http.MethodPut:
+			putPlatformClientCalls++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected %s %s", r.Method, path)
+		}
+	}))
+	defer srv.Close()
+
+	a := Admin{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	token, err := a.PasswordGrantToken(context.Background(), "u", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.EnsureAudienceScope(context.Background(), token, AudienceParams{
+		Realm:                "kagenti",
+		ClientName:           "ns/wl",
+		AudienceClientID:     "ns/wl",
+		PlatformClientIDs:    []string{"kagenti"},
+		AudienceScopeEnabled: true,
+		AgentClientUUID:      "agent-uuid-123",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if putAgentClientCalls != 1 {
+		t.Fatalf("expected 1 PUT to agent client default-client-scopes, got %d", putAgentClientCalls)
+	}
+	if putPlatformClientCalls != 1 {
+		t.Fatalf("expected 1 PUT to platform client default-client-scopes, got %d", putPlatformClientCalls)
+	}
+}
+
+// TestEnsureAudienceScope_NoAgentAttachWhenUUIDEmpty verifies that omitting AgentClientUUID
+// preserves the prior behavior — only platform clients receive explicit scope attachment.
+func TestEnsureAudienceScope_NoAgentAttachWhenUUIDEmpty(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		switch {
+		case path == testMasterRealmTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "tok"})
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]clientScopeListItem{})
+		case path == "/admin/realms/kagenti/client-scopes" && r.Method == http.MethodPost:
+			w.Header().Set("Location", srv.URL+"/admin/realms/kagenti/client-scopes/new-scope-id")
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(path, "/client-scopes/new-scope-id/protocol-mappers/models") && r.Method == http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+		case strings.Contains(path, "/client-scopes/new-scope-id/protocol-mappers/models") && r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode([]protocolMapperRep{{
+				ID: "m1", Name: "agent-ns-wl-aud", Protocol: "openid-connect",
+				ProtocolMapper: "oidc-audience-mapper",
+				Config:         map[string]string{"included.custom.audience": "ns/wl"},
+			}})
+		case path == "/admin/realms/kagenti/default-default-client-scopes/new-scope-id" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		case strings.HasPrefix(path, "/admin/realms/kagenti/clients") && r.Method == http.MethodGet && r.URL.Query().Get("clientId") == "kagenti":
+			_ = json.NewEncoder(w).Encode([]map[string]string{{"id": "plat-int", "clientId": "kagenti"}})
+		case path == "/admin/realms/kagenti/clients/plat-int/default-client-scopes/new-scope-id" && r.Method == http.MethodPut:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			// Critical: any PUT to /clients/<uuid>/default-client-scopes/... where uuid != plat-int
+			// would mean we attached to an unintended client.
+			t.Fatalf("unexpected %s %s", r.Method, path)
+		}
+	}))
+	defer srv.Close()
+
+	a := Admin{BaseURL: srv.URL, HTTPClient: srv.Client()}
+	token, err := a.PasswordGrantToken(context.Background(), "u", "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = a.EnsureAudienceScope(context.Background(), token, AudienceParams{
+		Realm:                "kagenti",
+		ClientName:           "ns/wl",
+		AudienceClientID:     "ns/wl",
+		PlatformClientIDs:    []string{"kagenti"},
+		AudienceScopeEnabled: true,
+		// AgentClientUUID intentionally empty
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEnsureAudienceScope_UpdatesStaleMapper verifies that when an audience scope mapper
 // already exists with a different audience (e.g. short-form "ns/wl" instead of SPIFFE URI),
 // ensureAudienceMapper detects the mismatch and updates it via PUT.

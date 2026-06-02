@@ -252,7 +252,7 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		logger.Error(err, "Keycloak admin token failed")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
-	_, clientSecret, err := kc.RegisterOrFetchClientWithToken(ctx, token, keycloak.ClientRegistrationParams{
+	agentClientUUID, clientSecret, err := kc.RegisterOrFetchClientWithToken(ctx, token, keycloak.ClientRegistrationParams{
 		Realm:               ab.KeycloakRealm,
 		ClientID:            clientID,
 		ClientName:          clientName,
@@ -271,6 +271,7 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		AudienceClientID:     clientID,
 		PlatformClientIDs:    parsePlatformClientIDs(ab.PlatformClientIDs),
 		AudienceScopeEnabled: audienceScopeOn,
+		AgentClientUUID:      agentClientUUID,
 	}); err != nil {
 		logger.Error(err, "Keycloak audience scope management failed (credentials will still be written)",
 			"clientId", clientID)
