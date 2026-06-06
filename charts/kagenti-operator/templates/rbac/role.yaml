@@ -62,6 +62,15 @@ rules:
   - get
   - update
 - apiGroups:
+  - cert-manager.io
+  resources:
+  - certificates
+  - clusterissuers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - agent.kagenti.dev
   resources:
   - agentcards
