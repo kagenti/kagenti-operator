@@ -103,6 +103,20 @@ keycloak:
   # the adminSecretNamespace. Set here only to override auto-discovery.
   publicUrl: ""
 
+  # SPIFFE authentication for operator (alternative to admin credentials)
+  # When enabled, the operator authenticates to Keycloak using its JWT-SVID
+  # from SPIRE instead of username/password. Requires:
+  #   1. SPIRE deployed and spire-spiffe IdP configured in Keycloak
+  #   2. Operator client pre-created in Keycloak with federated-jwt auth
+  #   3. kagenti.io/spire: enabled label on operator pod (triggers authbridge injection)
+  spiffeAuth:
+    enabled: false  # Set to true to enable SPIFFE authentication
+    # Operator's SPIFFE ID (must match Keycloak client's clientId)
+    # Auto-generated from namespace + serviceAccount if not set
+    operatorClientID: ""
+    # Path to JWT-SVID file (written by spiffe-helper in authbridge sidecar)
+    jwtSVIDPath: "/opt/jwt_svid.token"
+
 # [AUTHBRIDGE CONFIG]: Reconcile authbridge-config ConfigMap in agent namespaces
 authbridgeConfig:
   enabled: true

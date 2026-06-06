@@ -126,6 +126,11 @@ func main() {
 	var credentialWaitTimeout string
 	var enableAuthbridgeConfig bool
 
+	// SPIFFE authentication for operator
+	var useSpiffeAuth bool
+	var operatorClientID string
+	var jwtSVIDPath string
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -190,6 +195,14 @@ func main() {
 		"How long AuthBridge waits for Keycloak credentials to become available")
 	flag.BoolVar(&enableAuthbridgeConfig, "enable-authbridge-config", true,
 		"Reconcile authbridge-config ConfigMap in namespaces labeled kagenti-enabled=true")
+
+	// SPIFFE authentication flags (operator authenticates to Keycloak with JWT-SVID)
+	flag.BoolVar(&useSpiffeAuth, "use-spiffe-auth", false,
+		"Authenticate to Keycloak using JWT-SVID instead of admin credentials")
+	flag.StringVar(&operatorClientID, "operator-client-id", "",
+		"Operator's SPIFFE ID (clientId in Keycloak), e.g. spiffe://example.com/ns/kagenti-operator-system/sa/controller-manager")
+	flag.StringVar(&jwtSVIDPath, "jwt-svid-path", "/opt/jwt_svid.token",
+		"Path to JWT-SVID file written by spiffe-helper")
 
 	opts := zap.Options{
 		Development: false,
@@ -518,9 +531,25 @@ func main() {
 
 	if enableClientRegistration {
 		operatorNS := getOperatorNamespace()
+
+		// Read SPIFFE auth configuration from environment variables
+		// (flags take precedence over env vars if both are set)
+		if os.Getenv("USE_SPIFFE_AUTH") == "true" && !useSpiffeAuth {
+			useSpiffeAuth = true
+		}
+		if operatorClientID == "" {
+			operatorClientID = os.Getenv("OPERATOR_CLIENT_ID")
+		}
+		if os.Getenv("JWT_SVID_PATH") != "" && jwtSVIDPath == "/opt/jwt_svid.token" {
+			jwtSVIDPath = os.Getenv("JWT_SVID_PATH")
+		}
+
 		setupLog.Info("Client registration controller enabled",
 			"keycloakAdminSecretNamespace", keycloakAdminSecretNamespace,
-			"operatorNamespace", operatorNS)
+			"operatorNamespace", operatorNS,
+			"useSpiffeAuth", useSpiffeAuth,
+			"operatorClientID", operatorClientID)
+
 		if err = (&controller.ClientRegistrationReconciler{
 			Client:                       mgr.GetClient(),
 			APIReader:                    mgr.GetAPIReader(),
@@ -529,6 +558,10 @@ func main() {
 			KeycloakAdminSecretNamespace: keycloakAdminSecretNamespace,
 			SpireTrustDomain:             spireTrustDomain,
 			KeycloakAdminTokenCache:      &keycloak.CachedAdminTokenProvider{},
+			// SPIFFE authentication configuration
+			UseSpiffeAuth:    useSpiffeAuth,
+			OperatorClientID: operatorClientID,
+			JWTSVIDPath:      jwtSVIDPath,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")
 			os.Exit(1)

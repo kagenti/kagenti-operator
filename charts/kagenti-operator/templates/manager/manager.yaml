@@ -24,6 +24,10 @@ spec:
         {{ $key }}: {{ $value }}
         {{- end }}
         {{- end }}
+        {{- if and .Values.keycloak.spiffeAuth .Values.keycloak.spiffeAuth.enabled }}
+        kagenti.io/type: agent
+        kagenti.io/spire: enabled
+        {{- end }}
     spec:
       containers:
         - name: manager
@@ -99,6 +103,14 @@ spec:
             {{- if and .Values.signatureVerification .Values.signatureVerification.spireTrustDomain }}
             - name: KAGENTI_SPIRE_TRUST_DOMAIN
               value: {{ .Values.signatureVerification.spireTrustDomain | quote }}
+            {{- end }}
+            {{- if and .Values.keycloak.spiffeAuth .Values.keycloak.spiffeAuth.enabled }}
+            - name: USE_SPIFFE_AUTH
+              value: "true"
+            - name: OPERATOR_CLIENT_ID
+              value: {{ .Values.keycloak.spiffeAuth.operatorClientID | default (printf "spiffe://%s/ns/%s/sa/%s" (.Values.signatureVerification.spireTrustDomain | default "localtest.me") .Release.Namespace .Values.controllerManager.serviceAccountName) }}
+            - name: JWT_SVID_PATH
+              value: {{ .Values.keycloak.spiffeAuth.jwtSVIDPath | default "/opt/jwt_svid.token" }}
             {{- end }}
             {{- if .Values.controllerManager.container.env }}
             {{- range $key, $value := .Values.controllerManager.container.env }}
