@@ -10,6 +10,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -72,7 +73,21 @@ type ClientRegistrationReconciler struct {
 	SpireTrustDomain string
 	// KeycloakAdminTokenCache caches admin password-grant tokens by Keycloak URL and credentials to
 	// avoid a token request on every reconcile. If nil, PasswordGrantToken is used without caching.
+	// Only used when UseSpiffeAuth is false.
 	KeycloakAdminTokenCache *keycloak.CachedAdminTokenProvider
+
+	// UseSpiffeAuth enables JWT-SVID authentication instead of admin credentials.
+	// When true, the operator authenticates to Keycloak with its JWT-SVID and uses
+	// the Admin API with manage-clients role. When false, uses admin credentials.
+	UseSpiffeAuth bool
+
+	// JWTSVIDPath is the file path to read the operator's JWT-SVID from.
+	// Only used when UseSpiffeAuth is true. Default: /opt/jwt_svid.token
+	JWTSVIDPath string
+
+	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/kagenti-operator-system/sa/...).
+	// Only used when UseSpiffeAuth is true.
+	OperatorClientID string
 }
 
 func (r *ClientRegistrationReconciler) uncachedReader() client.Reader {
@@ -228,19 +243,6 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	adminUser, adminPass, err := r.resolveKeycloakAdminCredentials(ctx)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			logger.Info("waiting for Keycloak admin secret")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
-	if adminUser == "" || adminPass == "" {
-		logger.Info("Keycloak admin secret missing credentials")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
 	spireEnabled := strings.EqualFold(strings.TrimSpace(ab.SpireEnabled), "true")
 	clientName := ns + "/" + workloadName
 	clientID, err := resolveKeycloakClientID(ns, workloadName, template.Spec.ServiceAccountName, spireEnabled, r.SpireTrustDomain)
@@ -258,14 +260,53 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	kc := keycloak.Admin{BaseURL: ab.KeycloakURL, HTTPClient: keycloak.DefaultHTTPClient()}
 	var token string
-	if r.KeycloakAdminTokenCache != nil {
-		token, err = r.KeycloakAdminTokenCache.Token(ctx, &kc, adminUser, adminPass)
+
+	// Authenticate to Keycloak: use JWT-SVID if enabled, otherwise admin credentials
+	if r.UseSpiffeAuth {
+		// SPIFFE authentication path
+		jwtSVIDPath := r.JWTSVIDPath
+		if jwtSVIDPath == "" {
+			jwtSVIDPath = "/opt/jwt_svid.token"
+		}
+		jwtSVID, err := os.ReadFile(jwtSVIDPath)
+		if err != nil {
+			logger.Error(err, "read JWT-SVID failed", "path", jwtSVIDPath)
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		if r.OperatorClientID == "" {
+			logger.Error(fmt.Errorf("OperatorClientID not configured"), "SPIFFE auth requires OperatorClientID")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, string(jwtSVID))
+		if err != nil {
+			logger.Error(err, "Keycloak JWT-SVID authentication failed")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		logger.V(1).Info("authenticated with JWT-SVID", "clientId", r.OperatorClientID)
 	} else {
-		token, err = kc.PasswordGrantToken(ctx, adminUser, adminPass)
-	}
-	if err != nil {
-		logger.Error(err, "Keycloak admin token failed")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		// Admin credentials path (legacy)
+		adminUser, adminPass, err := r.resolveKeycloakAdminCredentials(ctx)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logger.Info("waiting for Keycloak admin secret")
+				return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+			}
+			return ctrl.Result{}, err
+		}
+		if adminUser == "" || adminPass == "" {
+			logger.Info("Keycloak admin secret missing credentials")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		if r.KeycloakAdminTokenCache != nil {
+			token, err = r.KeycloakAdminTokenCache.Token(ctx, &kc, adminUser, adminPass)
+		} else {
+			token, err = kc.PasswordGrantToken(ctx, adminUser, adminPass)
+		}
+		if err != nil {
+			logger.Error(err, "Keycloak admin token failed")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		logger.V(1).Info("authenticated with admin credentials")
 	}
 	agentClientUUID, clientSecret, err := kc.RegisterOrFetchClientWithToken(ctx, token, keycloak.ClientRegistrationParams{
 		Realm:               ab.KeycloakRealm,
