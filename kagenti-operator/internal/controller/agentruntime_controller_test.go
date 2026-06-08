@@ -315,7 +315,7 @@ var _ = Describe("AgentRuntime Controller", func() {
 			_ = k8sClient.Delete(ctx, dep)
 		})
 
-		It("should preserve type label, remove managed-by, and update config-hash on deletion", func() {
+		It("should remove type label and config-hash, and remove managed-by on deletion", func() {
 			r := newReconciler()
 
 			// Reconcile to add finalizer + apply config
@@ -326,11 +326,12 @@ var _ = Describe("AgentRuntime Controller", func() {
 				NamespacedName: types.NamespacedName{Name: "del-rt", Namespace: namespace},
 			})
 
-			// Get hash before deletion
+			// Confirm labels and hash are set before deletion
 			depBefore := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-deploy", Namespace: namespace}, depBefore)).To(Succeed())
-			hashBefore := depBefore.Spec.Template.Annotations[AnnotationConfigHash]
-			Expect(hashBefore).NotTo(BeEmpty())
+			Expect(depBefore.Spec.Template.Annotations[AnnotationConfigHash]).NotTo(BeEmpty())
+			Expect(depBefore.Labels[LabelAgentType]).NotTo(BeEmpty())
+			Expect(depBefore.Spec.Template.Labels[LabelAgentType]).NotTo(BeEmpty())
 
 			// Delete the AgentRuntime
 			Expect(k8sClient.Delete(ctx, rt)).To(Succeed())
@@ -345,16 +346,15 @@ var _ = Describe("AgentRuntime Controller", func() {
 			depAfter := &appsv1.Deployment{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "del-deploy", Namespace: namespace}, depAfter)).To(Succeed())
 
-			// Type label preserved
-			Expect(depAfter.Labels[LabelAgentType]).To(Equal("agent"))
-			Expect(depAfter.Spec.Template.Labels[LabelAgentType]).To(Equal("agent"))
+			// kagenti.io/type removed from both workload metadata and PodTemplateSpec
+			Expect(depAfter.Labels).NotTo(HaveKey(LabelAgentType))
+			Expect(depAfter.Spec.Template.Labels).NotTo(HaveKey(LabelAgentType))
 
-			// Managed-by removed
+			// kagenti.io/managed-by removed
 			Expect(depAfter.Labels).NotTo(HaveKey(LabelManagedBy))
 
-			// Config-hash updated to defaults-only (different from before)
-			hashAfter := depAfter.Spec.Template.Annotations[AnnotationConfigHash]
-			Expect(hashAfter).NotTo(Equal(hashBefore), "config-hash should change to defaults-only on deletion")
+			// kagenti.io/config-hash removed from PodTemplateSpec
+			Expect(depAfter.Spec.Template.Annotations).NotTo(HaveKey(AnnotationConfigHash))
 
 			// Finalizer removed — AgentRuntime should be gone
 			deletedRT := &agentv1alpha1.AgentRuntime{}

@@ -447,7 +447,9 @@ func isPodOwnedByWorkload(pod *corev1.Pod, workloadName string) bool {
 }
 
 // handleDeletion runs finalizer logic when an AgentRuntime is deleted.
-// It preserves the kagenti.io/type label and updates the config-hash to defaults-only.
+// It removes the kagenti.io/type label and kagenti.io/config-hash annotation so that
+// the next rolling update creates pods without sidecars, returning the workload to its
+// pre-AR state.
 func (r *AgentRuntimeReconciler) handleDeletion(ctx context.Context, rt *agentv1alpha1.AgentRuntime) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -460,12 +462,6 @@ func (r *AgentRuntimeReconciler) handleDeletion(ctx context.Context, rt *agentv1
 	ref := rt.Spec.TargetRef
 	acc, ok := newRuntimePodTemplateAccessor(ref.Kind)
 	if ok {
-		defaultsHash, err := ComputeDefaultsOnlyHash(ctx, r.Client, rt.Namespace)
-		if err != nil {
-			logger.V(1).Info("Failed to compute defaults-only hash, using empty", "error", err)
-			defaultsHash = ""
-		}
-
 		key := types.NamespacedName{Name: ref.Name, Namespace: rt.Namespace}
 		updateErr := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			if err := r.Get(ctx, key, acc.obj); err != nil {
@@ -475,21 +471,26 @@ func (r *AgentRuntimeReconciler) handleDeletion(ctx context.Context, rt *agentv1
 				return err
 			}
 
-			// Preserve kagenti.io/type label (workload stays classified)
-			// Update config-hash to defaults-only
-			podAnnotations := acc.getPodAnnotations(acc.obj)
-			if podAnnotations == nil {
-				podAnnotations = make(map[string]string)
-			}
-			podAnnotations[AnnotationConfigHash] = defaultsHash
-			acc.setPodAnnotations(acc.obj, podAnnotations)
-
-			// Remove managed-by from workload metadata
+			// Remove kagenti.io/type and kagenti.io/managed-by from workload metadata.
 			workloadLabels := acc.obj.GetLabels()
+			delete(workloadLabels, LabelAgentType)
 			delete(workloadLabels, LabelManagedBy)
 			acc.obj.SetLabels(workloadLabels)
 
-			logger.Info("Updated workload to defaults-only config on AgentRuntime deletion",
+			// Remove kagenti.io/type from PodTemplateSpec pod labels so future pods
+			// are not presented to the webhook with the type label.
+			podLabels := acc.getPodLabels(acc.obj)
+			delete(podLabels, LabelAgentType)
+			acc.setPodLabels(acc.obj, podLabels)
+
+			// Remove kagenti.io/config-hash from PodTemplateSpec pod annotations.
+			// This triggers the rolling update that replaces existing injected pods,
+			// and leaves the workload annotation-clean for any future AR.
+			podAnnotations := acc.getPodAnnotations(acc.obj)
+			delete(podAnnotations, AnnotationConfigHash)
+			acc.setPodAnnotations(acc.obj, podAnnotations)
+
+			logger.Info("Removed kagenti labels and config-hash from workload on AgentRuntime deletion",
 				"workload", ref.Name, "kind", ref.Kind)
 			return r.Update(ctx, acc.obj)
 		})

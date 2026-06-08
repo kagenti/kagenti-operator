@@ -171,8 +171,8 @@ spec:
 ### Deleting an AgentRuntime
 
 When you delete the AgentRuntime CR, the controller performs a graceful cleanup:
-- Preserves the `kagenti.io/type` label (so AgentCard discovery continues)
-- Updates the config hash to defaults-only (triggers a rollback to default sidecar configuration)
+- Removes the `kagenti.io/type` label from the workload metadata and PodTemplateSpec
+- Removes the `kagenti.io/config-hash` annotation from the PodTemplateSpec (triggers a rolling update so existing injected pods are replaced)
 - Removes the `app.kubernetes.io/managed-by` label
 
 ```bash

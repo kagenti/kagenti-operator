@@ -1142,7 +1142,6 @@ metadata:
   name: combined-agent
   namespace: ` + combinedTestNamespace + `
   labels:
-    kagenti.io/type: agent
     protocol.kagenti.io/a2a: ""
     app.kubernetes.io/name: combined-agent
 spec:
@@ -1150,12 +1149,10 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: combined-agent
-      kagenti.io/type: agent
   template:
     metadata:
       labels:
         app.kubernetes.io/name: combined-agent
-        kagenti.io/type: agent
         protocol.kagenti.io/a2a: ""
     spec:
       serviceAccountName: combined-agent

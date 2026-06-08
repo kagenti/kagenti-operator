@@ -1092,8 +1092,6 @@ rules:
 	SetDefaultEventuallyPollingInterval(time.Second)
 
 	Context("Agent lifecycle", Ordered, func() {
-		var initialConfigHash string
-
 		It("should apply labels and config-hash to target Deployment", func() {
 			By("deploying the agent target workload")
 			_, err := utils.KubectlApplyStdin(runtimeTargetDeploymentFixture(), agentRuntimeTestNamespace)
@@ -1137,7 +1135,6 @@ rules:
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(hash).NotTo(BeEmpty())
 				g.Expect(hash).To(HaveLen(64))
-				initialConfigHash = hash
 			}).Should(Succeed())
 
 			By("verifying AgentCard is auto-created by AgentCardSync")
@@ -1199,9 +1196,6 @@ rules:
 			}, 30*time.Second, 5*time.Second).Should(Succeed())
 		})
 
-		// Note: the AgentCard auto-created by AgentCardSync (runtime-agent-target-deployment-card)
-		// persists after AgentRuntime deletion because kagenti.io/type=agent is preserved on the
-		// Deployment and AgentCardSync owns the card independently of the AgentRuntime lifecycle.
 		It("should clean up on deletion", func() {
 			By("deleting the AgentRuntime CR")
 			cmd := exec.Command("kubectl", "delete", "agentruntime", "test-agent-runtime",
@@ -1223,12 +1217,20 @@ rules:
 			_, err = utils.Run(cmd)
 			Expect(err).NotTo(HaveOccurred())
 
-			By("verifying kagenti.io/type label is preserved")
+			By("verifying kagenti.io/type label is removed from workload metadata")
 			Eventually(func(g Gomega) {
 				typeLabel, err := utils.KubectlGetJsonpath("deployment", "runtime-agent-target",
 					agentRuntimeTestNamespace, "{.metadata.labels['kagenti\\.io/type']}")
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(typeLabel).To(Equal("agent"))
+				g.Expect(typeLabel).To(BeEmpty())
+			}).Should(Succeed())
+
+			By("verifying kagenti.io/type label is removed from PodTemplateSpec")
+			Eventually(func(g Gomega) {
+				typeLabel, err := utils.KubectlGetJsonpath("deployment", "runtime-agent-target",
+					agentRuntimeTestNamespace, "{.spec.template.metadata.labels['kagenti\\.io/type']}")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(typeLabel).To(BeEmpty())
 			}).Should(Succeed())
 
 			By("verifying managed-by label is removed")
@@ -1239,15 +1241,13 @@ rules:
 				g.Expect(managedBy).To(BeEmpty())
 			}).Should(Succeed())
 
-			By("verifying config-hash changed to defaults-only hash")
+			By("verifying config-hash annotation is removed from PodTemplateSpec")
 			Eventually(func(g Gomega) {
 				hash, err := utils.KubectlGetJsonpath("deployment", "runtime-agent-target",
 					agentRuntimeTestNamespace,
 					"{.spec.template.metadata.annotations['kagenti\\.io/config-hash']}")
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(hash).NotTo(BeEmpty())
-				g.Expect(hash).To(HaveLen(64))
-				g.Expect(hash).NotTo(Equal(initialConfigHash))
+				g.Expect(hash).To(BeEmpty())
 			}).Should(Succeed())
 		})
 	})
@@ -1451,7 +1451,6 @@ var _ = Describe("Combined AgentRuntime + AgentCard + Auth Bridge E2E", Ordered,
 	const controllerDeployment = "kagenti-operator-controller-manager"
 
 	var origArgs []string
-	var initialConfigHash string
 
 	BeforeAll(func() {
 		By("ensuring mlflow-operator ClusterRole exists for ServiceAccount informer")
@@ -1674,7 +1673,6 @@ rules:
 				"{.spec.template.metadata.annotations['kagenti\\.io/config-hash']}")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(hash).To(HaveLen(64))
-			initialConfigHash = hash
 		}).Should(Succeed())
 	})
 
@@ -1795,7 +1793,7 @@ rules:
 		}).Should(Succeed())
 	})
 
-	It("should clean up on AgentRuntime deletion and maintain injection", func() {
+	It("should clean up on AgentRuntime deletion and stop injection", func() {
 		By("deleting the AgentRuntime CR")
 		cmd := exec.Command("kubectl", "delete", "agentruntime", "combined-agent",
 			"-n", combinedTestNamespace)
@@ -1816,12 +1814,20 @@ rules:
 		_, err = utils.Run(cmd)
 		Expect(err).NotTo(HaveOccurred())
 
-		By("verifying kagenti.io/type=agent label preserved")
+		By("verifying kagenti.io/type label removed from workload metadata")
 		Eventually(func(g Gomega) {
 			typeLabel, err := utils.KubectlGetJsonpath("deployment", "combined-agent",
 				combinedTestNamespace, "{.metadata.labels['kagenti\\.io/type']}")
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(typeLabel).To(Equal("agent"))
+			g.Expect(typeLabel).To(BeEmpty())
+		}).Should(Succeed())
+
+		By("verifying kagenti.io/type label removed from PodTemplateSpec")
+		Eventually(func(g Gomega) {
+			typeLabel, err := utils.KubectlGetJsonpath("deployment", "combined-agent",
+				combinedTestNamespace, "{.spec.template.metadata.labels['kagenti\\.io/type']}")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(typeLabel).To(BeEmpty())
 		}).Should(Succeed())
 
 		By("verifying managed-by label removed")
@@ -1832,14 +1838,13 @@ rules:
 			g.Expect(managedBy).To(BeEmpty())
 		}).Should(Succeed())
 
-		By("verifying config-hash changed from initial")
+		By("verifying config-hash annotation removed from PodTemplateSpec")
 		Eventually(func(g Gomega) {
 			hash, err := utils.KubectlGetJsonpath("deployment", "combined-agent",
 				combinedTestNamespace,
 				"{.spec.template.metadata.annotations['kagenti\\.io/config-hash']}")
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(hash).To(HaveLen(64))
-			g.Expect(hash).NotTo(Equal(initialConfigHash))
+			g.Expect(hash).To(BeEmpty())
 		}).Should(Succeed())
 
 		By("verifying AgentCard still exists")
@@ -1851,57 +1856,27 @@ rules:
 			g.Expect(name).To(Equal(cardName))
 		}).Should(Succeed())
 
-		By("getting current pod name")
-		var oldPodName string
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "pods",
-				"-l", "app.kubernetes.io/name=combined-agent",
-				"-n", combinedTestNamespace,
-				"-o", "jsonpath={.items[0].metadata.name}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty())
-			oldPodName = output
-		}).Should(Succeed())
+		By("waiting for rolling update to complete after label removal")
+		Expect(utils.WaitForDeploymentReady("combined-agent", combinedTestNamespace, 3*time.Minute)).To(Succeed())
 
-		By("deleting pod to verify re-injection")
-		cmd = exec.Command("kubectl", "delete", "pod", oldPodName, "-n", combinedTestNamespace)
-		_, err = utils.Run(cmd)
-		Expect(err).NotTo(HaveOccurred())
-
-		By("waiting for replacement pod with sidecars")
-		Eventually(func(g Gomega) {
-			cmd := exec.Command("kubectl", "get", "pods",
-				"-l", "app.kubernetes.io/name=combined-agent",
-				"-n", combinedTestNamespace,
-				"-o", "jsonpath={.items[0].metadata.name}")
-			output, err := utils.Run(cmd)
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(output).NotTo(BeEmpty())
-			g.Expect(output).NotTo(Equal(oldPodName), "new pod should have a different name")
-
-			phase, err := utils.KubectlGetJsonpath("pod", output, combinedTestNamespace, "{.status.phase}")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(phase).To(Equal("Running"))
-		}, 3*time.Minute, 2*time.Second).Should(Succeed())
-
-		By("verifying replacement pod has sidecars")
+		By("verifying replacement pods have no sidecars")
 		Eventually(func(g Gomega) {
 			containers, err := utils.KubectlGetJsonpath("pod", "",
 				combinedTestNamespace,
 				"{.items[?(@.metadata.labels.app\\.kubernetes\\.io/name=='combined-agent')].spec.containers[*].name}")
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(containers).To(ContainSubstring("envoy-proxy"))
-			g.Expect(containers).To(ContainSubstring("spiffe-helper"))
+			g.Expect(containers).NotTo(ContainSubstring("envoy-proxy"),
+				"envoy-proxy should not be injected after AR deletion")
 		}).Should(Succeed())
 
-		By("verifying replacement pod has proxy-init")
+		By("verifying replacement pods have no init containers")
 		Eventually(func(g Gomega) {
 			initContainers, err := utils.KubectlGetJsonpath("pod", "",
 				combinedTestNamespace,
 				"{.items[?(@.metadata.labels.app\\.kubernetes\\.io/name=='combined-agent')].spec.initContainers[*].name}")
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(initContainers).To(ContainSubstring("proxy-init"))
+			g.Expect(initContainers).NotTo(ContainSubstring("proxy-init"),
+				"proxy-init should not be injected after AR deletion")
 		}).Should(Succeed())
 	})
 })

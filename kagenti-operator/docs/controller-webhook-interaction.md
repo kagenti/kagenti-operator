@@ -116,9 +116,9 @@ sequenceDiagram
 
     Note over Ctrl: Finalizer kagenti.io/cleanup is present
 
-    Ctrl->>API: Patch Deployment:<br/>- Preserve kagenti.io/type label<br/>- Update config-hash to defaults-only<br/>- Remove managed-by label
+    Ctrl->>API: Patch Deployment:<br/>- Remove kagenti.io/type label<br/>- Remove kagenti.io/config-hash annotation<br/>- Remove managed-by label
     API-->>K8s: PodTemplateSpec changed → rolling update
-    Note over K8s: New Pods get sidecars with default config only
+    Note over K8s: New Pods lack the type label — webhook skips injection
 
     Ctrl->>API: Remove finalizer from AgentRuntime CR
     API->>API: CR garbage collected
