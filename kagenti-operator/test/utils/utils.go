@@ -623,3 +623,19 @@ func UncommentCode(filename, target, prefix string) error {
 	// nolint:gosec
 	return os.WriteFile(filename, out.Bytes(), 0644)
 }
+
+// ProbeWebhookReady checks that the controller pod is fully Ready.
+// The readyz endpoint gates on webhookServer.StartedChecker(), so Ready
+// means the webhook TLS server is accepting connections on :9443.
+func ProbeWebhookReady(namespace string) error {
+	cmd := exec.Command("kubectl", "wait",
+		"--for=condition=Ready",
+		"pod", "-l", "control-plane=controller-manager",
+		"-n", namespace,
+		"--timeout=5s")
+	_, err := Run(cmd)
+	if err != nil {
+		return fmt.Errorf("controller pod not yet Ready: %w", err)
+	}
+	return nil
+}
