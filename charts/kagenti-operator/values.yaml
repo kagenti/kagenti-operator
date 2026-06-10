@@ -158,6 +158,20 @@ signatureVerification:
   # How far before SVID expiry to trigger proactive workload restart
   svidExpiryGracePeriod: "30m"
 
+# [SPIFFE OPERATOR AUTH]: Operator authentication to Keycloak using JWT-SVID
+# When enabled, the operator uses its SPIFFE identity (JWT-SVID) to authenticate
+# to Keycloak instead of admin credentials. Requires Keycloak SPIFFE IdP configured.
+spiffe:
+  enabled: false
+  operatorAuth:
+    enabled: false
+    # JWT audience must match Keycloak's realm issuer URL exactly.
+    # If not set, defaults to: {{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}
+    # Check Keycloak's .well-known/openid-configuration for the correct issuer value.
+    jwtAudience: ""
+    # Path to JWT-SVID file written by spiffe-helper sidecar
+    jwtSVIDPath: "/opt/jwt_svid.token"
+
 # Feature gates — highest-priority layer in the injection precedence chain.
 # Set globalEnabled to false to disable ALL sidecar injection (kill switch).
 # Set individual gates to false to disable specific sidecars cluster-wide.
