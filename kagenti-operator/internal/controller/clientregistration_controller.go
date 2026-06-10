@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -88,6 +90,9 @@ type ClientRegistrationReconciler struct {
 	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/kagenti-operator-system/sa/...).
 	// Only used when UseSpiffeAuth is true.
 	OperatorClientID string
+
+	// Recorder emits Kubernetes Events to surface configuration issues visible in kubectl describe.
+	Recorder record.EventRecorder
 }
 
 func (r *ClientRegistrationReconciler) uncachedReader() client.Reader {
@@ -264,22 +269,53 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	// Authenticate to Keycloak: use JWT-SVID if enabled, otherwise admin credentials
 	if r.UseSpiffeAuth {
 		// SPIFFE authentication path
+		// Validate OperatorClientID before file I/O to fail fast on misconfiguration
+		if r.OperatorClientID == "" {
+			err := fmt.Errorf("OperatorClientID not configured")
+			logger.Error(err, "SPIFFE auth requires OperatorClientID")
+			if r.Recorder != nil {
+				r.Recorder.Event(owner, corev1.EventTypeWarning, "OperatorClientIDMissing",
+					"UseSpiffeAuth=true but OperatorClientID is empty. Check operator configuration.")
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
 		jwtSVIDPath := r.JWTSVIDPath
 		if jwtSVIDPath == "" {
 			jwtSVIDPath = "/opt/jwt_svid.token"
 		}
-		jwtSVID, err := os.ReadFile(jwtSVIDPath)
+
+		// Path traversal protection: only allow reading from designated directories
+		cleanPath := filepath.Clean(jwtSVIDPath)
+		if !strings.HasPrefix(cleanPath, "/opt/") && !strings.HasPrefix(cleanPath, "/var/run/secrets/") {
+			err := fmt.Errorf("JWT-SVID path %q outside allowed directories (/opt/, /var/run/secrets/)", jwtSVIDPath)
+			logger.Error(err, "invalid JWT-SVID path")
+			if r.Recorder != nil {
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "InvalidJWTSVIDPath",
+					"JWT-SVID path %q rejected: must be under /opt/ or /var/run/secrets/", jwtSVIDPath)
+			}
+			return ctrl.Result{}, err // fail permanently on config error
+		}
+
+		jwtSVID, err := os.ReadFile(cleanPath)
 		if err != nil {
-			logger.Error(err, "read JWT-SVID failed", "path", jwtSVIDPath)
+			logger.Error(err, "read JWT-SVID failed", "path", cleanPath)
+			if r.Recorder != nil {
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDReadFailed",
+					"Failed to read JWT-SVID from %s: %v. Check spiffe-helper sidecar configuration.", cleanPath, err)
+			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
-		if r.OperatorClientID == "" {
-			logger.Error(fmt.Errorf("OperatorClientID not configured"), "SPIFFE auth requires OperatorClientID")
-			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-		}
+
+		// WARNING: JWT-SVID is a bearer token - must never appear in logs or error messages
+		// to prevent token exposure. All code paths must handle jwtSVID as sensitive data.
 		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, string(jwtSVID))
 		if err != nil {
 			logger.Error(err, "Keycloak JWT-SVID authentication failed")
+			if r.Recorder != nil {
+				r.Recorder.Event(owner, corev1.EventTypeWarning, "KeycloakAuthFailed",
+					"Failed to authenticate to Keycloak with JWT-SVID. Check SPIFFE IdP configuration in Keycloak.")
+			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 		logger.V(1).Info("authenticated with JWT-SVID", "clientId", r.OperatorClientID)
