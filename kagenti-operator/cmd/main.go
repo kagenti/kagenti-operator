@@ -138,7 +138,7 @@ func main() {
 	flag.BoolVar(&enableDCRRegistration, "enable-dcr-registration", false,
 		"Use SPIFFE-based Dynamic Client Registration instead of admin credentials (experimental)")
 	flag.StringVar(&spireSocketPath, "spire-socket-path", "unix:///run/spire/sockets/agent.sock",
-		"Path to SPIRE Agent workload API socket (for DCR JWT-SVID authentication)")
+		"Path to SPIRE Agent workload API socket (for SPIFFE ID authentication)")
 	flag.StringVar(&configPath, "config-path", "/etc/kagenti/config.yaml", "Path to platform config file")
 	flag.StringVar(&featureGatesPath, "feature-gates-path",
 		"/etc/kagenti/feature-gates/feature-gates.yaml", "Path to feature gates config file")
@@ -477,15 +477,15 @@ func main() {
 		}
 
 		if enableDCRRegistration {
-			// Initialize SPIRE client for DCR authentication
+			// Initialize SPIRE client for SPIFFE ID authentication
 			spireClient := spireclient.NewClient(spireSocketPath)
 			if err := spireClient.Connect(ctx); err != nil {
 				setupLog.Error(err, "failed to connect to SPIRE agent", "socketPath", spireSocketPath)
-				setupLog.Info("DCR requires SPIRE agent connection. Ensure SPIRE agent socket is mounted.")
+				setupLog.Info("SPIFFE ID authentication requires SPIRE agent connection. Ensure SPIRE agent socket is mounted.")
 				os.Exit(1)
 			}
 			reconciler.SpireClient = spireClient
-			setupLog.Info("DCR mode enabled: using SPIFFE JWT-SVID for client registration",
+			setupLog.Info("SPIFFE ID authentication enabled: using JWT-SVID for client registration",
 				"spireSocket", spireSocketPath)
 		} else {
 			setupLog.Info("Client registration controller will read keycloak-admin-secret from operator namespace",

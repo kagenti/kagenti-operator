@@ -32,7 +32,6 @@ import (
 
 	"github.com/go-logr/logr"
 
-	agentv1alpha1 "github.com/kagenti/operator/api/v1alpha1"
 	"github.com/kagenti/operator/internal/clientreg"
 	"github.com/kagenti/operator/internal/keycloak"
 )
@@ -246,13 +245,13 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	var clientSecret string
 	if r.UseDCR {
-		// DCR path: Use SPIFFE JWT-SVID for authentication
+		// SPIFFE ID auth path: Use SPIFFE JWT-SVID for authentication
 		clientSecret, err = r.registerClientWithDCR(ctx, logger, ab, clientID, clientName, authType, tokenExch)
 		if err != nil {
-			logger.Error(err, "DCR client registration failed", "clientId", clientID)
+			logger.Error(err, "SPIFFE ID client registration failed", "clientId", clientID)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
-		logger.Info("Client registered via DCR", "clientId", clientID, "method", "jwt-svid")
+		logger.Info("Client registered via SPIFFE ID auth", "clientId", clientID, "method", "jwt-svid")
 	} else {
 		// Admin credentials path: Read keycloak-admin-secret from operator namespace
 		clientSecret, err = r.registerClientWithAdminCreds(ctx, logger, ab, clientID, clientName, authType, tokenExch, audienceScopeOn)
@@ -264,7 +263,7 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	}
 
 	// Audience scope is handled inside registerClientWithAdminCreds for the admin path
-	// DCR path doesn't support audience scope management yet
+	// SPIFFE ID auth path doesn't support audience scope management yet
 
 	secretName := keycloakClientCredentialsSecretName(ns, workloadName)
 	if err := r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
