@@ -94,7 +94,7 @@ func main() {
 	var tlsOpts []func(*tls.Config)
 
 	var enableClientRegistration bool
-	var enableDCRRegistration bool
+	var enableSpiffeIDAuth bool
 	var spireSocketPath string
 	var configPath string
 	var featureGatesPath string
@@ -135,9 +135,11 @@ func main() {
 		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
 	flag.BoolVar(&enableClientRegistration, "enable-client-registration", true,
 		"Enable operator-managed Keycloak client registration for agent/tool workloads")
-	flag.BoolVar(&enableDCRRegistration, "enable-dcr-registration", false,
-		"Use SPIFFE-based Dynamic Client Registration instead of admin credentials (experimental)")
-	flag.StringVar(&spireSocketPath, "spire-socket-path", "unix:///run/spire/sockets/agent.sock",
+	flag.BoolVar(&enableSpiffeIDAuth, "enable-spiffe-id-auth", false,
+		"Enable SPIFFE ID authentication for operator-managed client registration. "+
+		"When enabled, the operator uses JWT-SVID from SPIRE to register clients "+
+		"instead of admin credentials. Requires --spire-socket-path and --spire-trust-domain.")
+	flag.StringVar(&spireSocketPath, "spire-socket-path", "unix:///run/spire/sockets/spire-agent.sock",
 		"Path to SPIRE Agent workload API socket (for SPIFFE ID authentication)")
 	flag.StringVar(&configPath, "config-path", "/etc/kagenti/config.yaml", "Path to platform config file")
 	flag.StringVar(&featureGatesPath, "feature-gates-path",
@@ -473,10 +475,10 @@ func main() {
 			OperatorNamespace:       operatorNS,
 			SpireTrustDomain:        spireTrustDomain,
 			KeycloakAdminTokenCache: &keycloak.CachedAdminTokenProvider{},
-			UseDCR:                  enableDCRRegistration,
+			UseSpiffeIDAuth:         enableSpiffeIDAuth,
 		}
 
-		if enableDCRRegistration {
+		if enableSpiffeIDAuth {
 			// Initialize SPIRE client for SPIFFE ID authentication
 			spireClient := spireclient.NewClient(spireSocketPath)
 			if err := spireClient.Connect(ctx); err != nil {

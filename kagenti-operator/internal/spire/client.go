@@ -57,12 +57,12 @@ func (c *Client) Close() error {
 
 // FetchJWTSVID fetches a JWT-SVID from the SPIRE Agent for the given audience.
 //
-// The audience should be the Keycloak DCR endpoint, e.g. "keycloak-dcr" or the full URL.
+// The audience should be the Keycloak realm, e.g. "http://keycloak.localtest.me:8080/realms/kagenti"
 // The returned JWT-SVID is a signed JWT token that can be used to authenticate with Keycloak.
 //
 // Parameters:
 //   - ctx: Context for the request
-//   - audience: The audience for the JWT-SVID (typically the Keycloak realm or DCR endpoint)
+//   - audience: The audience for the JWT-SVID (typically the Keycloak realm URL)
 //
 // Returns:
 //   - jwtToken: The JWT-SVID token as a string

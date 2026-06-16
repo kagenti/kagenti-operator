@@ -78,14 +78,14 @@ type ClientRegistrationReconciler struct {
 	SpireTrustDomain string
 	// KeycloakAdminTokenCache caches admin password-grant tokens by Keycloak URL and credentials to
 	// avoid a token request on every reconcile. If nil, PasswordGrantToken is used without caching.
-	// Only used when UseDCR is false.
+	// Only used when UseSpiffeIDAuth is false.
 	KeycloakAdminTokenCache *keycloak.CachedAdminTokenProvider
 
-	// UseDCR enables Dynamic Client Registration with JWT-SVID instead of admin credentials.
+	// UseSpiffeIDAuth enables SPIFFE ID authentication with JWT-SVID instead of admin credentials.
 	// When true, SpireClient must be set.
-	UseDCR bool
-	// SpireClient is used to fetch JWT-SVIDs for DCR authentication.
-	// Only used when UseDCR is true.
+	UseSpiffeIDAuth bool
+	// SpireClient is used to fetch JWT-SVIDs for SPIFFE ID authentication.
+	// Only used when UseSpiffeIDAuth is true.
 	SpireClient SpireClient
 }
 
@@ -244,9 +244,9 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	audienceScopeOn := strings.TrimSpace(ab.KeycloakAudienceScopeEnabled) != "false"
 
 	var clientSecret string
-	if r.UseDCR {
+	if r.UseSpiffeIDAuth {
 		// SPIFFE ID auth path: Use SPIFFE JWT-SVID for authentication
-		clientSecret, err = r.registerClientWithDCR(ctx, logger, ab, clientID, clientName, authType, tokenExch)
+		clientSecret, err = r.registerClientWithSpiffeID(ctx, logger, ab, clientID, clientName, authType, tokenExch)
 		if err != nil {
 			logger.Error(err, "SPIFFE ID client registration failed", "clientId", clientID)
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
@@ -459,8 +459,8 @@ func clientRegistrationWorkloadPredicate(obj client.Object) bool {
 	}
 }
 
-// registerClientWithDCR registers a Keycloak client using Dynamic Client Registration with JWT-SVID.
-func (r *ClientRegistrationReconciler) registerClientWithDCR(
+// registerClientWithSpiffeID registers a Keycloak client using SPIFFE ID authentication with JWT-SVID.
+func (r *ClientRegistrationReconciler) registerClientWithSpiffeID(
 	ctx context.Context,
 	logger logr.Logger,
 	ab authbridgeConfig,
@@ -468,24 +468,24 @@ func (r *ClientRegistrationReconciler) registerClientWithDCR(
 	tokenExch bool,
 ) (clientSecret string, err error) {
 	if r.SpireClient == nil {
-		return "", fmt.Errorf("DCR enabled but SPIRE client not initialized")
+		return "", fmt.Errorf("SPIFFE ID auth enabled but SPIRE client not initialized")
 	}
 
 	// Fetch JWT-SVID from SPIRE with Keycloak as the audience
-	// The audience should match what Keycloak expects for DCR authentication
+	// The audience should match what Keycloak expects for SPIFFE ID authentication
 	audience := ab.KeycloakURL + "/realms/" + ab.KeycloakRealm
 	jwtSVID, _, err := r.SpireClient.FetchJWTSVID(ctx, audience)
 	if err != nil {
-		return "", fmt.Errorf("fetch JWT-SVID for DCR: %w", err)
+		return "", fmt.Errorf("fetch JWT-SVID for SPIFFE ID auth: %w", err)
 	}
 
-	// Use DCR client to register
-	dcrClient := keycloak.DCRClient{
+	// Use SPIFFE auth client to register
+	spiffeClient := keycloak.SpiffeAuthClient{
 		BaseURL:    ab.KeycloakURL,
 		HTTPClient: keycloak.DefaultHTTPClient(),
 	}
 
-	secret, _, err := dcrClient.RegisterClientWithJWTSVID(ctx, jwtSVID, keycloak.ClientRegistrationParams{
+	secret, _, err := spiffeClient.RegisterClientWithJWTSVID(ctx, jwtSVID, keycloak.ClientRegistrationParams{
 		Realm:               ab.KeycloakRealm,
 		ClientID:            clientID,
 		ClientName:          clientName,
@@ -494,10 +494,10 @@ func (r *ClientRegistrationReconciler) registerClientWithDCR(
 		TokenExchangeEnable: tokenExch,
 	})
 	if err != nil {
-		return "", fmt.Errorf("DCR registration: %w", err)
+		return "", fmt.Errorf("SPIFFE ID client registration: %w", err)
 	}
 
-	logger.V(1).Info("DCR registration succeeded", "clientId", clientID, "audience", audience)
+	logger.V(1).Info("SPIFFE ID registration succeeded", "clientId", clientID, "audience", audience)
 	return secret, nil
 }
 

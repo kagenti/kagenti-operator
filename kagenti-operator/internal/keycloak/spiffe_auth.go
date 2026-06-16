@@ -16,41 +16,42 @@ import (
 	"net/http"
 )
 
-// DCRClient implements Dynamic Client Registration using JWT-SVID authentication
-// instead of admin credentials. This eliminates the need for long-lived admin
-// credentials and reduces the security surface to DCR-only permissions.
+// SpiffeAuthClient implements SPIFFE ID Authentication for client registration
+// using JWT-SVID authentication instead of admin credentials. This eliminates
+// the need for long-lived admin credentials.
 //
-// Keycloak DCR endpoint: POST /realms/{realm}/clients-registrations/default
+// Keycloak client registration endpoint: POST /realms/{realm}/clients-registrations/default
 // Authentication: Bearer <JWT-SVID>
 //
 // See: https://www.keycloak.org/docs/latest/securing_apps/#_client_registration
-type DCRClient struct {
+type SpiffeAuthClient struct {
 	BaseURL    string // e.g. https://keycloak.example.com:8080 (no trailing path)
 	HTTPClient *http.Client
 }
 
-func (d *DCRClient) httpc() *http.Client {
+func (d *SpiffeAuthClient) httpc() *http.Client {
 	if d.HTTPClient != nil {
 		return d.HTTPClient
 	}
 	return http.DefaultClient
 }
 
-// dcrRequest represents the payload for Keycloak DCR endpoint.
-// This is a subset of the full client representation, focusing on the fields
-// needed for operator-managed client registration.
-type dcrRequest struct {
+// clientRequest represents the payload for Keycloak client registration endpoint.
+// Uses the standard Keycloak ClientRepresentation format (same as admin API).
+type clientRequest struct {
 	ClientID                  string            `json:"clientId"`
-	ClientName                string            `json:"clientName,omitempty"`
-	RedirectURIs              []string          `json:"redirectUris,omitempty"`
-	GrantTypes                []string          `json:"grantTypes,omitempty"`
-	ResponseTypes             []string          `json:"responseTypes,omitempty"`
+	Name                      string            `json:"name,omitempty"`
+	StandardFlowEnabled       bool              `json:"standardFlowEnabled"`
+	DirectAccessGrantsEnabled bool              `json:"directAccessGrantsEnabled"`
+	ServiceAccountsEnabled    bool              `json:"serviceAccountsEnabled"`
+	PublicClient              bool              `json:"publicClient"`
+	FullScopeAllowed          bool              `json:"fullScopeAllowed"`
 	Attributes                map[string]string `json:"attributes,omitempty"`
 	ClientAuthenticatorType   string            `json:"clientAuthenticatorType,omitempty"`
 }
 
-// dcrResponse represents the response from Keycloak DCR endpoint.
-type dcrResponse struct {
+// clientResponse represents the response from Keycloak client registration endpoint.
+type clientResponse struct {
 	ClientID       string `json:"clientId"`
 	ClientSecret   string `json:"clientSecret,omitempty"`
 	RegistrationAccessToken string `json:"registrationAccessToken"`
@@ -69,11 +70,11 @@ type dcrResponse struct {
 //   - clientSecret: The generated client secret (for client-secret auth)
 //   - registrationToken: Registration access token for future updates
 //   - error: Any error that occurred during registration
-func (d *DCRClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVID string, params ClientRegistrationParams) (clientSecret, registrationToken string, err error) {
+func (d *SpiffeAuthClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVID string, params ClientRegistrationParams) (clientSecret, registrationToken string, err error) {
 	base := trimBaseURL(d.BaseURL)
 	endpoint := fmt.Sprintf("%s/realms/%s/clients-registrations/default", base, params.Realm)
 
-	// Build DCR request
+	// Build client registration request
 	authType := params.ClientAuthType
 	if authType == "" {
 		authType = "client-secret"
@@ -93,19 +94,22 @@ func (d *DCRClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVID strin
 		attrs["jwt.credential.sub"] = params.ClientID
 	}
 
-	req := dcrRequest{
+	req := clientRequest{
 		ClientID:   params.ClientID,
-		ClientName: params.ClientName,
-		// DCR defaults for service-to-service auth
-		GrantTypes:    []string{"client_credentials", "urn:ietf:params:oauth:grant-type:token-exchange"},
-		ResponseTypes: []string{"token"},
-		Attributes:    attrs,
-		ClientAuthenticatorType: authType,
+		Name:       params.ClientName,
+		// Service-to-service client defaults (same as admin API)
+		StandardFlowEnabled:       false,
+		DirectAccessGrantsEnabled: false,
+		ServiceAccountsEnabled:    true,
+		PublicClient:              false,
+		FullScopeAllowed:          false,
+		Attributes:                attrs,
+		ClientAuthenticatorType:   authType,
 	}
 
 	body, err := json.Marshal(req)
 	if err != nil {
-		return "", "", fmt.Errorf("marshal DCR request: %w", err)
+		return "", "", fmt.Errorf("marshal client registration request: %w", err)
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -119,30 +123,30 @@ func (d *DCRClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVID strin
 
 	resp, err := d.httpc().Do(httpReq)
 	if err != nil {
-		return "", "", fmt.Errorf("DCR request: %w", err)
+		return "", "", fmt.Errorf("client registration request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("DCR failed: status %d: %s", resp.StatusCode, truncate(respBody, 512))
+		return "", "", fmt.Errorf("client registration failed: status %d: %s", resp.StatusCode, truncate(respBody, 512))
 	}
 
-	var dcrResp dcrResponse
-	if err := json.Unmarshal(respBody, &dcrResp); err != nil {
-		return "", "", fmt.Errorf("decode DCR response: %w", err)
+	var clientResp clientResponse
+	if err := json.Unmarshal(respBody, &clientResp); err != nil {
+		return "", "", fmt.Errorf("decode client registration response: %w", err)
 	}
 
-	return dcrResp.ClientSecret, dcrResp.RegistrationAccessToken, nil
+	return clientResp.ClientSecret, clientResp.RegistrationAccessToken, nil
 }
 
 // UpdateClientWithJWTSVID updates an existing OAuth client using the registration access token.
 //
 // Note: This is for future use. Currently, the operator uses RegisterOrFetchClient which
-// handles both create and update. For DCR, we need to store the registrationAccessToken
+// handles both create and update. For SPIFFE ID auth, we need to store the registrationAccessToken
 // and use it for updates instead of admin credentials.
-func (d *DCRClient) UpdateClientWithJWTSVID(ctx context.Context, registrationToken string, params ClientRegistrationParams) error {
+func (d *SpiffeAuthClient) UpdateClientWithJWTSVID(ctx context.Context, registrationToken string, params ClientRegistrationParams) error {
 	// Implementation for update using PUT /realms/{realm}/clients-registrations/default/{clientId}
 	// with Authorization: Bearer <registrationAccessToken>
-	return fmt.Errorf("DCR update not yet implemented")
+	return fmt.Errorf("client update via SPIFFE ID auth not yet implemented")
 }
