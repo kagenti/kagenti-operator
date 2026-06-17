@@ -87,6 +87,9 @@ type ClientRegistrationReconciler struct {
 	// SpireClient is used to fetch JWT-SVIDs for SPIFFE ID authentication.
 	// Only used when UseSpiffeIDAuth is true.
 	SpireClient SpireClient
+	// OperatorSPIFFEID is the operator's SPIFFE ID (spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>)
+	// Used for token exchange when UseSpiffeIDAuth is true.
+	OperatorSPIFFEID string
 }
 
 func (r *ClientRegistrationReconciler) uncachedReader() client.Reader {
@@ -305,6 +308,7 @@ func workloadWantsOperatorClientReg(labels map[string]string, injectTools bool) 
 type authbridgeConfig struct {
 	KeycloakURL                  string
 	KeycloakRealm                string
+	ExpectedAudience             string // Keycloak realm issuer URL (audience for JWT-SVID)
 	SpireEnabled                 string
 	ClientAuthType               string
 	SpiffeIDPAlias               string
@@ -328,6 +332,7 @@ func readAuthbridgeConfigMap(ctx context.Context, c client.Reader, namespace str
 	return authbridgeConfig{
 		KeycloakURL:                  cm.Data["KEYCLOAK_URL"],
 		KeycloakRealm:                cm.Data["KEYCLOAK_REALM"],
+		ExpectedAudience:             cm.Data["EXPECTED_AUDIENCE"],
 		SpireEnabled:                 cm.Data["SPIRE_ENABLED"],
 		ClientAuthType:               cm.Data["CLIENT_AUTH_TYPE"],
 		SpiffeIDPAlias:               cm.Data["SPIFFE_IDP_ALIAS"],
@@ -471,9 +476,17 @@ func (r *ClientRegistrationReconciler) registerClientWithSpiffeID(
 		return "", fmt.Errorf("SPIFFE ID auth enabled but SPIRE client not initialized")
 	}
 
-	// Fetch JWT-SVID from SPIRE with Keycloak as the audience
-	// The audience should match what Keycloak expects for SPIFFE ID authentication
-	audience := ab.KeycloakURL + "/realms/" + ab.KeycloakRealm
+	// Fetch JWT-SVID from SPIRE with Keycloak realm issuer as the audience
+	// CRITICAL: The audience must match Keycloak's realm issuer URL.
+	// Keycloak's FederatedJWTClientValidator expects the audience to be the realm issuer
+	// (from Urls.realmIssuer()), which is the external URL, NOT the internal service URL.
+	// Use EXPECTED_AUDIENCE from authbridge-config if available, otherwise fall back to
+	// constructing from KeycloakURL (which may be incorrect if using internal service URL).
+	audience := ab.ExpectedAudience
+	if audience == "" {
+		// Fallback for backward compatibility
+		audience = ab.KeycloakURL + "/realms/" + ab.KeycloakRealm
+	}
 	jwtSVID, _, err := r.SpireClient.FetchJWTSVID(ctx, audience)
 	if err != nil {
 		return "", fmt.Errorf("fetch JWT-SVID for SPIFFE ID auth: %w", err)
@@ -492,6 +505,7 @@ func (r *ClientRegistrationReconciler) registerClientWithSpiffeID(
 		ClientAuthType:      authType,
 		SpiffeIDPAlias:      ab.SpiffeIDPAlias,
 		TokenExchangeEnable: tokenExch,
+		OperatorClientID:    r.OperatorSPIFFEID,
 	})
 	if err != nil {
 		return "", fmt.Errorf("SPIFFE ID client registration: %w", err)
