@@ -49,7 +49,9 @@ rules:
   verbs:
   - create
   - get
+  - list
   - update
+  - watch
 - apiGroups:
   - agent.kagenti.dev
   resources:

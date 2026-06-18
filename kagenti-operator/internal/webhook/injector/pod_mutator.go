@@ -103,6 +103,7 @@ func NewPodMutator(
 }
 
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=create;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=create;get;list;update;watch
 
 // InjectAuthBridge evaluates the multi-layer precedence chain and conditionally injects sidecars.
 //

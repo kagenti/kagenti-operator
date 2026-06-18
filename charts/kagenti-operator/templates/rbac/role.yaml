@@ -60,7 +60,9 @@ rules:
   verbs:
   - create
   - get
+  - list
   - update
+  - watch
 - apiGroups:
   - cert-manager.io
   resources:
