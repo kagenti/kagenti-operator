@@ -77,7 +77,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -154,7 +154,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -223,7 +223,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -378,7 +378,7 @@ spec:
       serviceAccountName: signed-agent-sa
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       initContainers:
@@ -532,7 +532,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -600,7 +600,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -693,7 +693,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -745,7 +745,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -797,7 +797,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -944,7 +944,7 @@ spec:
       serviceAccountName: authbridge-agent
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1012,7 +1012,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1099,7 +1099,7 @@ spec:
       serviceAccountName: combined-agent
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1264,7 +1264,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1322,7 +1322,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1376,7 +1376,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1460,7 +1460,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -1511,7 +1511,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+
         seccompProfile:
           type: RuntimeDefault
       containers:

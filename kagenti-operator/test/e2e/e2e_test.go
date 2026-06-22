@@ -233,7 +233,6 @@ var _ = Describe("Manager", Ordered, func() {
 										"drop": ["ALL"]
 									},
 									"runAsNonRoot": true,
-									"runAsUser": 1000,
 									"seccompProfile": {
 										"type": "RuntimeDefault"
 									}

@@ -371,7 +371,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
+
       containers:
       - name: discovery
         image: registry.k8s.io/pause:3.9
@@ -401,7 +401,7 @@ spec:
     spec:
       securityContext:
         runAsNonRoot: true
-        runAsUser: 65534
+
       containers:
       - name: ztunnel
         image: registry.k8s.io/pause:3.9
