@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,16 @@ func getOperatorNamespace() string {
 	return "kagenti-system"
 }
 
+// getOperatorServiceAccount returns the operator's service account name.
+// It reads from POD_SERVICE_ACCOUNT env var, falling back to "controller-manager".
+func getOperatorServiceAccount() string {
+	if sa := os.Getenv("POD_SERVICE_ACCOUNT"); sa != "" {
+		return sa
+	}
+	setupLog.Info("POD_SERVICE_ACCOUNT not set, using default", "default", "controller-manager")
+	return "controller-manager"
+}
+
 // nolint:gocyclo
 func main() {
 	var metricsAddr string
@@ -137,8 +148,8 @@ func main() {
 		"Enable operator-managed Keycloak client registration for agent/tool workloads")
 	flag.BoolVar(&enableSpiffeIDAuth, "enable-spiffe-id-auth", false,
 		"Enable SPIFFE ID authentication for operator-managed client registration. "+
-		"When enabled, the operator uses JWT-SVID from SPIRE to register clients "+
-		"instead of admin credentials. Requires --spire-socket-path and --spire-trust-domain.")
+			"When enabled, the operator uses JWT-SVID from SPIRE to register clients "+
+			"instead of admin credentials. Requires --spire-socket-path and --spire-trust-domain.")
 	flag.StringVar(&spireSocketPath, "spire-socket-path", "unix:///run/spire/sockets/spire-agent.sock",
 		"Path to SPIRE Agent workload API socket (for SPIFFE ID authentication)")
 	flag.StringVar(&configPath, "config-path", "/etc/kagenti/config.yaml", "Path to platform config file")
@@ -487,8 +498,15 @@ func main() {
 				os.Exit(1)
 			}
 			reconciler.SpireClient = spireClient
+
+			// Construct operator's own SPIFFE ID
+			// Format: spiffe://<trust-domain>/ns/<namespace>/sa/<service-account>
+			operatorSA := getOperatorServiceAccount()
+			operatorSPIFFEID := fmt.Sprintf("spiffe://%s/ns/%s/sa/%s", spireTrustDomain, operatorNS, operatorSA)
+			reconciler.OperatorSPIFFEID = operatorSPIFFEID
+
 			setupLog.Info("SPIFFE ID authentication enabled: using JWT-SVID for client registration",
-				"spireSocket", spireSocketPath)
+				"spireSocket", spireSocketPath, "operatorSPIFFEID", operatorSPIFFEID)
 		} else {
 			setupLog.Info("Client registration controller will read keycloak-admin-secret from operator namespace",
 				"namespace", operatorNS)

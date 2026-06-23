@@ -246,6 +246,36 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	tokenExch := strings.TrimSpace(ab.KeycloakTokenExchangeEnabled) != "false"
 	audienceScopeOn := strings.TrimSpace(ab.KeycloakAudienceScopeEnabled) != "false"
 
+	// Early-exit optimization: Check if client credentials secret already exists.
+	// This prevents unnecessary Keycloak API calls and SPIRE JWT-SVID fetches
+	// when multiple reconciliation events fire for the same deployment.
+	secretName := keycloakClientCredentialsSecretName(ns, workloadName)
+	existingSecret := &corev1.Secret{}
+	err = r.Get(ctx, types.NamespacedName{Namespace: ns, Name: secretName}, existingSecret)
+	if err == nil {
+		// Secret exists - verify it has valid credentials for this client
+		if existingClientID, hasClientID := existingSecret.Data["client-id.txt"]; hasClientID {
+			if string(existingClientID) == clientID {
+				if existingSecret, hasSecret := existingSecret.Data["client-secret.txt"]; hasSecret && len(existingSecret) > 0 {
+					logger.V(1).Info("client already registered, credentials exist", "clientId", clientID, "secret", secretName)
+					// Still need to ensure the pod template annotation is set
+					if err = patchTemplate(ctx); err != nil {
+						logger.Error(err, "patch workload pod template")
+						return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+					}
+					logger.Info("operator client registration applied", "workload", workloadName, "namespace", ns, "secret", secretName)
+					return ctrl.Result{}, nil
+				}
+			}
+		}
+		// Secret exists but is invalid/incomplete - will recreate below
+		logger.V(1).Info("existing secret invalid, will re-register", "clientId", clientID, "secret", secretName)
+	} else if !apierrors.IsNotFound(err) {
+		// Unexpected error reading secret
+		logger.Error(err, "check existing client credentials secret")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
 	var clientSecret string
 	if r.UseSpiffeIDAuth {
 		// SPIFFE ID auth path: Use SPIFFE JWT-SVID for authentication
@@ -268,8 +298,8 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 	// Audience scope is handled inside registerClientWithAdminCreds for the admin path
 	// SPIFFE ID auth path doesn't support audience scope management yet
 
-	secretName := keycloakClientCredentialsSecretName(ns, workloadName)
-	if err := r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
+	// secretName already declared above in early-exit optimization
+	if err = r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
 		logger.Error(err, "ensure client credentials secret")
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}

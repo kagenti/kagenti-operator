@@ -28,6 +28,7 @@ type ClientRegistrationParams struct {
 	ClientAuthType      string // "client-secret" or "federated-jwt"
 	SpiffeIDPAlias      string // Keycloak SPIFFE IdP alias when using federated-jwt
 	TokenExchangeEnable bool
+	OperatorClientID    string // Operator's SPIFFE ID for client credentials grant
 }
 
 type adminTokenResponse struct {

@@ -102,6 +102,15 @@ spec:
               identity:
                 description: Identity specifies optional per-workload identity overrides
                 properties:
+                  allowedAudiences:
+                    description: |-
+                      AllowedAudiences specifies additional JWT audiences that the AuthProxy
+                      sidecar should accept for inbound requests. This is a transitional
+                      mechanism to support application-to-agent flows until the auth model
+                      is finalized. See https://github.com/kagenti/kagenti-operator/issues/368
+                    items:
+                      type: string
+                    type: array
                   spiffe:
                     description: SPIFFE specifies SPIFFE identity configuration overrides
                     properties:

@@ -182,8 +182,8 @@ func (d *SpiffeAuthClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVI
 	}
 
 	req := clientRequest{
-		ClientID:   params.ClientID,
-		Name:       params.ClientName,
+		ClientID: params.ClientID,
+		Name:     params.ClientName,
 		// Service-to-service client defaults
 		StandardFlowEnabled:       false,
 		DirectAccessGrantsEnabled: false,
@@ -216,21 +216,63 @@ func (d *SpiffeAuthClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVI
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		// Handle 409 Conflict as idempotent success (client already exists)
+		// Handle 409 Conflict - client already exists
 		// This prevents infinite reconciliation loops when multiple events trigger
 		// concurrent registration attempts for the same client.
 		if resp.StatusCode == http.StatusConflict {
-			// Client already registered - this is fine for idempotent reconciliation.
-			// Return empty secret; the controller will fetch existing credentials if needed.
+			// Client exists - fetch its UUID and ensure it has correct configuration
+			internalID, err := d.findClientUUID(ctx, accessToken, params.Realm, params.ClientID)
+			if err != nil {
+				return "", "", fmt.Errorf("find existing client after 409: %w", err)
+			}
+			if internalID == "" {
+				return "", "", fmt.Errorf("client exists (409) but cannot find UUID for %s", params.ClientID)
+			}
+
+			// Reconcile the existing client to ensure correct auth type
+			// This handles the case where CLIENT_AUTH_TYPE changed after initial registration
+			if err := d.reconcileExistingClient(ctx, accessToken, params.Realm, internalID, &req); err != nil {
+				return "", "", fmt.Errorf("reconcile existing client: %w", err)
+			}
+
+			// Fetch the client secret if auth type is client-secret
+			if authType == "client-secret" {
+				secret, err := d.readClientSecret(ctx, accessToken, params.Realm, internalID)
+				if err != nil {
+					return "", "", fmt.Errorf("read existing client secret: %w", err)
+				}
+				return secret, "", nil
+			}
+			// For federated-jwt, no secret needed
 			return "", "", nil
 		}
 		return "", "", fmt.Errorf("client registration failed: status %d: %s", resp.StatusCode, truncate(respBody, 512))
 	}
 
-	// Admin API returns the created client representation
-	// For client-secret auth, we need to fetch the secret separately or it's in the response
-	// Keycloak Admin API returns Location header with the client URL, we could fetch from there
-	// For now, return empty secret - the controller will handle fetching it if needed
+	// Registration succeeded (201 Created)
+	// Parse Location header to get the client's internal UUID
+	location := resp.Header.Get("Location")
+	if location == "" {
+		return "", "", fmt.Errorf("client created but Location header missing")
+	}
+
+	// Extract UUID from Location: .../admin/realms/{realm}/clients/{uuid}
+	parts := strings.Split(location, "/")
+	if len(parts) == 0 {
+		return "", "", fmt.Errorf("cannot parse client UUID from Location: %s", location)
+	}
+	internalID := parts[len(parts)-1]
+
+	// Fetch the client secret if auth type is client-secret
+	if authType == "client-secret" {
+		secret, err := d.readClientSecret(ctx, accessToken, params.Realm, internalID)
+		if err != nil {
+			return "", "", fmt.Errorf("read newly created client secret: %w", err)
+		}
+		return secret, "", nil
+	}
+
+	// For federated-jwt, no secret needed
 	return "", "", nil
 }
 
@@ -245,4 +287,115 @@ func (d *SpiffeAuthClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVI
 func (d *SpiffeAuthClient) UpdateClientWithJWTSVID(ctx context.Context, jwtSVID string, params ClientRegistrationParams) error {
 	// Similar flow to RegisterClientWithJWTSVID but using PUT to update
 	return fmt.Errorf("client update via SPIFFE ID auth not yet implemented")
+}
+
+// findClientUUID queries Keycloak for a client by its clientId and returns its internal UUID.
+func (d *SpiffeAuthClient) findClientUUID(ctx context.Context, token, realm, clientID string) (string, error) {
+	base := trimBaseURL(d.BaseURL)
+	u, err := url.Parse(base + "/admin/realms/" + url.PathEscape(realm) + "/clients")
+	if err != nil {
+		return "", err
+	}
+	q := u.Query()
+	q.Set("clientId", clientID)
+	u.RawQuery = q.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := d.httpc().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("keycloak list clients: status %d: %s", resp.StatusCode, truncate(body, 512))
+	}
+	var list []struct {
+		ID       string `json:"id"`
+		ClientID string `json:"clientId"`
+	}
+	if err := json.Unmarshal(body, &list); err != nil {
+		return "", fmt.Errorf("keycloak list clients decode: %w", err)
+	}
+	for i := range list {
+		if list[i].ClientID == clientID {
+			return list[i].ID, nil
+		}
+	}
+	return "", nil
+}
+
+// reconcileExistingClient updates an existing client to match the desired configuration.
+// This ensures that if CLIENT_AUTH_TYPE changes, existing clients are updated.
+func (d *SpiffeAuthClient) reconcileExistingClient(ctx context.Context, token, realm, internalUUID string, desired *clientRequest) error {
+	base := trimBaseURL(d.BaseURL)
+	endpoint := base + "/admin/realms/" + url.PathEscape(realm) + "/clients/" + url.PathEscape(internalUUID)
+
+	// Convert clientRequest to keycloakClientRep format for PUT
+	rep := map[string]interface{}{
+		"clientId":                  desired.ClientID,
+		"name":                      desired.Name,
+		"standardFlowEnabled":       desired.StandardFlowEnabled,
+		"directAccessGrantsEnabled": desired.DirectAccessGrantsEnabled,
+		"serviceAccountsEnabled":    desired.ServiceAccountsEnabled,
+		"publicClient":              desired.PublicClient,
+		"fullScopeAllowed":          desired.FullScopeAllowed,
+		"clientAuthenticatorType":   desired.ClientAuthenticatorType,
+		"attributes":                desired.Attributes,
+	}
+
+	body, err := json.Marshal(rep)
+	if err != nil {
+		return fmt.Errorf("marshal client representation: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := d.httpc().Do(req)
+	if err != nil {
+		return fmt.Errorf("update client request: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("update client failed: status %d: %s", resp.StatusCode, truncate(respBody, 512))
+	}
+	return nil
+}
+
+// readClientSecret fetches the client secret for a given client UUID.
+func (d *SpiffeAuthClient) readClientSecret(ctx context.Context, token, realm, internalUUID string) (string, error) {
+	base := trimBaseURL(d.BaseURL)
+	endpoint := base + "/admin/realms/" + url.PathEscape(realm) + "/clients/" + url.PathEscape(internalUUID) + "/client-secret"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := d.httpc().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("keycloak client secret: status %d: %s", resp.StatusCode, truncate(body, 512))
+	}
+	var cs clientSecretRep
+	if err := json.Unmarshal(body, &cs); err != nil {
+		return "", fmt.Errorf("keycloak client secret decode: %w", err)
+	}
+	return cs.Value, nil
 }
