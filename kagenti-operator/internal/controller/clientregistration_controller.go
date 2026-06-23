@@ -221,13 +221,14 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	ns := owner.GetNamespace()
 
-	ab, err := readAuthbridgeConfigMap(ctx, r.uncachedReader(), ns)
+	// Read authbridge-config from operator namespace (kagenti-system), not agent namespace
+	ab, err := readAuthbridgeConfigMap(ctx, r.uncachedReader(), r.OperatorNamespace)
 	if err != nil {
-		logger.Error(err, "read authbridge-config")
+		logger.Error(err, "read authbridge-config", "operatorNamespace", r.OperatorNamespace)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 	if ab.KeycloakURL == "" || ab.KeycloakRealm == "" {
-		logger.Info("waiting for KEYCLOAK_URL/KEYCLOAK_REALM in authbridge-config", "namespace", ns)
+		logger.Info("waiting for KEYCLOAK_URL/KEYCLOAK_REALM in authbridge-config", "operatorNamespace", r.OperatorNamespace)
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
