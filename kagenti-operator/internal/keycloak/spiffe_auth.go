@@ -216,6 +216,14 @@ func (d *SpiffeAuthClient) RegisterClientWithJWTSVID(ctx context.Context, jwtSVI
 
 	respBody, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		// Handle 409 Conflict as idempotent success (client already exists)
+		// This prevents infinite reconciliation loops when multiple events trigger
+		// concurrent registration attempts for the same client.
+		if resp.StatusCode == http.StatusConflict {
+			// Client already registered - this is fine for idempotent reconciliation.
+			// Return empty secret; the controller will fetch existing credentials if needed.
+			return "", "", nil
+		}
 		return "", "", fmt.Errorf("client registration failed: status %d: %s", resp.StatusCode, truncate(respBody, 512))
 	}
 
