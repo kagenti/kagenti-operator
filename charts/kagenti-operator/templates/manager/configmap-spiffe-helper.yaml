@@ -11,7 +11,7 @@ data:
   config.hcl: |
     agent_address = "/spiffe-workload-api/spire-agent.sock"
     cmd = "/bin/chmod"
-    cmd_args = "644,/opt/jwt_svid.token"
+    cmd_args = "644 /opt/jwt_svid.token"
     renew_signal = ""
     cert_dir = ""
     svid_file_name = ""
