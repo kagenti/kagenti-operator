@@ -10,16 +10,13 @@ metadata:
 data:
   config.hcl: |
     agent_address = "/spiffe-workload-api/spire-agent.sock"
-    cmd = "/bin/chmod"
-    cmd_args = "644 /opt/jwt_svid.token"
+    # cmd/cmd_args fire on X.509 SVID renewals only, not JWT SVIDs.
+    # File permissions are handled by running spiffe-helper as the same UID
+    # as the manager container (65532) so it can read the 600-mode file.
     renew_signal = ""
     cert_dir = ""
     svid_file_name = ""
     svid_bundle_file_name = ""
-    # jwt_audience MUST match Keycloak's realm issuer URL exactly.
-    # The JWT-SVID's aud claim must match the "iss" claim in tokens issued by Keycloak.
-    # Use the public/external URL, not internal K8s service names, as Keycloak's issuer
-    # typically uses the external hostname.
     jwt_svids = [{
         jwt_audience = "{{ .Values.spiffe.operatorAuth.jwtAudience | default (printf "%s/realms/%s" .Values.keycloak.publicUrl .Values.keycloak.realm) }}"
         jwt_svid_file_name = "/opt/jwt_svid.token"
