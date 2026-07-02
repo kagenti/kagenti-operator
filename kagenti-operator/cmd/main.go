@@ -713,7 +713,7 @@ func main() {
 			UseSpiffeAuth:                useSpiffeAuth,
 			JWTSVIDPath:                  jwtSVIDPath,
 			OperatorClientID:             operatorClientID,
-			Recorder:                     mgr.GetEventRecorderFor("clientregistration"),
+			Recorder:                     mgr.GetEventRecorderFor("clientregistration"), //nolint:staticcheck
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")
 			os.Exit(1)
