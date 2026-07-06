@@ -92,7 +92,7 @@ spec:
             - "--credential-wait-timeout={{ .Values.authbridgeConfig.credentialWaitTimeout }}"
             {{- end }}
             {{- end }}
-{{- if .Values.sigstore.cardVerification.enabled }}
+            {{- if .Values.sigstore.cardVerification.enabled }}
             - "--enable-sigstore-verification=true"
             {{- if .Values.sigstore.cardVerification.auditMode }}
             - "--sigstore-audit-mode=true"
