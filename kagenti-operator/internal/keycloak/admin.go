@@ -126,6 +126,48 @@ func (a *Admin) PasswordGrantToken(ctx context.Context, adminUser, adminPass str
 	return token, err
 }
 
+// JWTSVIDGrantToken authenticates using JWT-SVID and returns an access token.
+// The clientID must be the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/kagenti-operator-system/sa/...).
+// The operator client must be configured in Keycloak with:
+//   - clientAuthenticatorType: "federated-jwt"
+//   - attributes.jwt.credential.issuer: SPIFFE IdP alias
+//   - attributes.jwt.credential.sub: operator's SPIFFE ID
+//   - Service account with manage-clients role
+func (a *Admin) JWTSVIDGrantToken(ctx context.Context, realm, clientID, jwtSVID string) (string, error) {
+	base := trimBaseURL(a.BaseURL)
+	form := url.Values{}
+	form.Set("grant_type", "client_credentials")
+	form.Set("client_id", clientID)
+	form.Set("client_assertion_type", "urn:ietf:params:oauth:client-assertion-type:jwt-spiffe")
+	form.Set("client_assertion", jwtSVID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		base+"/realms/"+url.PathEscape(realm)+"/protocol/openid-connect/token",
+		strings.NewReader(form.Encode()))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := a.httpc().Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("keycloak JWT-SVID token: status %d: %s", resp.StatusCode, truncate(body, 512))
+	}
+	var tr adminTokenResponse
+	if err := json.Unmarshal(body, &tr); err != nil {
+		return "", fmt.Errorf("keycloak JWT-SVID token decode: %w", err)
+	}
+	if tr.AccessToken == "" {
+		return "", fmt.Errorf("keycloak JWT-SVID token: empty access_token")
+	}
+	return tr.AccessToken, nil
+}
+
 // RegisterOrFetchClient ensures an OAuth client exists and returns its internal UUID and client secret value.
 func (a *Admin) RegisterOrFetchClient(ctx context.Context, adminUser, adminPass string, p ClientRegistrationParams) (internalID, secret string, err error) {
 	token, _, err := a.adminToken(ctx, adminUser, adminPass)

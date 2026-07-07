@@ -134,6 +134,9 @@ func main() {
 	var spiffeIdpAlias string
 	var credentialWaitTimeout string
 	var enableAuthbridgeConfig bool
+	var useSpiffeAuth bool
+	var jwtSVIDPath string
+	var operatorClientID string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
@@ -207,6 +210,12 @@ func main() {
 		"How long AuthBridge waits for Keycloak credentials to become available")
 	flag.BoolVar(&enableAuthbridgeConfig, "enable-authbridge-config", true,
 		"Reconcile authbridge-config ConfigMap in namespaces labeled kagenti-enabled=true")
+	flag.BoolVar(&useSpiffeAuth, "use-spiffe-auth", false,
+		"Use JWT-SVID authentication for Keycloak client registration instead of admin credentials")
+	flag.StringVar(&jwtSVIDPath, "jwt-svid-path", "/opt/jwt_svid.token",
+		"Path to JWT-SVID file written by spiffe-helper sidecar (used when --use-spiffe-auth=true)")
+	flag.StringVar(&operatorClientID, "operator-client-id", "",
+		"Operator SPIFFE ID (e.g. spiffe://<domain>/ns/<ns>/sa/<sa>), used when --use-spiffe-auth=true")
 
 	var enableSigstoreVerification bool
 	var sigstoreAuditMode bool
@@ -688,6 +697,11 @@ func main() {
 		setupLog.Info("Client registration controller enabled",
 			"keycloakAdminSecretNamespace", keycloakAdminSecretNamespace,
 			"operatorNamespace", operatorNS)
+		if useSpiffeAuth {
+			setupLog.Info("SPIFFE ID authentication enabled: using JWT-SVID for client registration",
+				"spireSocket", verifiedFetchSpiffeSocket,
+				"operatorSPIFFEID", operatorClientID)
+		}
 		if err = (&controller.ClientRegistrationReconciler{
 			Client:                       mgr.GetClient(),
 			APIReader:                    mgr.GetAPIReader(),
@@ -696,6 +710,10 @@ func main() {
 			KeycloakAdminSecretNamespace: keycloakAdminSecretNamespace,
 			SpireTrustDomain:             spireTrustDomain,
 			KeycloakAdminTokenCache:      &keycloak.CachedAdminTokenProvider{},
+			UseSpiffeAuth:                useSpiffeAuth,
+			JWTSVIDPath:                  jwtSVIDPath,
+			OperatorClientID:             operatorClientID,
+			Recorder:                     mgr.GetEventRecorderFor("clientregistration"), //nolint:staticcheck
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ClientRegistration")
 			os.Exit(1)
