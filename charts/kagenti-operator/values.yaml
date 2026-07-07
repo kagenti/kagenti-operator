@@ -202,6 +202,11 @@ spiffe:
     jwtAudience: ""
     # Path to JWT-SVID file written by spiffe-helper sidecar
     jwtSVIDPath: "/opt/jwt_svid.token"
+    spiffeHelper:
+      image:
+        repository: ghcr.io/kagenti/kagenti-extensions/spiffe-helper
+        tag: v0.6.0-alpha.4
+        pullPolicy: IfNotPresent
 
 # Feature gates — highest-priority layer in the injection precedence chain.
 # Set globalEnabled to false to disable ALL sidecar injection (kill switch).
