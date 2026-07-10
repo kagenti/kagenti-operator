@@ -17,8 +17,12 @@ data:
     cert_dir = ""
     svid_file_name = ""
     svid_bundle_file_name = ""
+    {{- $audience := .Values.spiffe.operatorAuth.jwtAudience | default (printf "%s/realms/%s" .Values.keycloak.publicUrl .Values.keycloak.realm) -}}
+    {{- if not (hasPrefix "http" $audience) -}}
+    {{- fail (printf "spiffe.operatorAuth.jwtAudience (or keycloak.publicUrl) must be set to a valid URL. Got: %q. This must be the Keycloak realm's external issuer URL, e.g. http://keycloak.example.com/realms/kagenti" $audience) -}}
+    {{- end -}}
     jwt_svids = [{
-        jwt_audience = "{{ required "spiffe.operatorAuth.jwtAudience must be set when spiffe.operatorAuth.enabled=true (e.g. http://keycloak.example.com/realms/kagenti)" .Values.spiffe.operatorAuth.jwtAudience }}"
+        jwt_audience = "{{ $audience }}"
         jwt_svid_file_name = "/opt/jwt_svid.token"
     }]
 {{- end }}
