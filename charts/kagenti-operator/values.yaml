@@ -205,11 +205,19 @@ spiffe:
   enabled: false
   operatorAuth:
     enabled: false
-    # jwtAudience — the audience value embedded in the JWT-SVID that SPIRE mints for
-    # the operator. Must exactly match the issuer URL that Keycloak's SPIFFE Identity
-    # Provider is configured to accept (typically the Keycloak realm's public URL:
-    # http://<keycloak-host>/realms/<realm>). Check Keycloak's
-    # .well-known/openid-configuration "issuer" field for the correct value.
+    # jwtAudience — the audience claim SPIRE will embed in the JWT-SVID it mints for
+    # the operator. Keycloak's FederatedJWTClientValidator checks that this value
+    # exactly matches the realm's issuer URL from its OIDC discovery document.
+    #
+    # IMPORTANT: this must be the PUBLIC/EXTERNAL Keycloak URL, not the in-cluster
+    # service address. Using the internal address (e.g. http://keycloak-service.keycloak.svc)
+    # causes an audience mismatch because Keycloak's issuer is always the external URL
+    # it was configured with (keycloak.publicUrl).
+    #
+    # Correct:   http://keycloak.example.com/realms/kagenti   (matches .well-known issuer)
+    # Wrong:     http://keycloak-service.keycloak.svc:8080/realms/kagenti  (internal, rejected)
+    #
+    # To find the correct value: curl http://<keycloak-host>/realms/<realm>/.well-known/openid-configuration | jq .issuer
     jwtAudience: ""
     # Path to JWT-SVID file written by spiffe-helper sidecar
     jwtSVIDPath: "/opt/jwt_svid.token"
