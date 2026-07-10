@@ -205,22 +205,6 @@ spiffe:
   enabled: false
   operatorAuth:
     enabled: false
-    # jwtAudience — the audience claim SPIRE will embed in the JWT-SVID it mints for
-    # the operator. Keycloak's FederatedJWTClientValidator checks that this value
-    # exactly matches the realm's issuer URL (a string comparison — not a network
-    # connection). Leave empty to auto-derive from keycloak.publicUrl/realms/<realm>.
-    #
-    # IMPORTANT: this must be the PUBLIC/EXTERNAL Keycloak URL, not the in-cluster
-    # service address. The mismatch happens because Keycloak's issuer is always the
-    # external URL it was configured with (keycloak.publicUrl), and the audience check
-    # is a string equality: aud-in-JWT must equal Keycloak's own issuer string.
-    #
-    # Correct:   http://keycloak.example.com/realms/kagenti   (matches .well-known issuer)
-    # Wrong:     http://keycloak-service.keycloak.svc:8080/realms/kagenti  (string mismatch)
-    #
-    # Helm will fail at install time if neither jwtAudience nor keycloak.publicUrl is set.
-    # To find the correct value: curl http://<keycloak-host>/realms/<realm>/.well-known/openid-configuration | jq .issuer
-    jwtAudience: ""
     # Path to JWT-SVID file written by spiffe-helper sidecar
     jwtSVIDPath: "/opt/jwt_svid.token"
     spiffeHelper:

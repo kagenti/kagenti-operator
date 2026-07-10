@@ -17,9 +17,17 @@ data:
     cert_dir = ""
     svid_file_name = ""
     svid_bundle_file_name = ""
-    {{- $audience := .Values.spiffe.operatorAuth.jwtAudience | default (printf "%s/realms/%s" .Values.keycloak.publicUrl .Values.keycloak.realm) -}}
+    {{- /*
+    jwt_audience must equal the Keycloak realm's issuer URL — the string Keycloak
+    advertises in its /.well-known/openid-configuration. It is always derived from
+    keycloak.publicUrl (the external URL Keycloak was configured with). The internal
+    k8s service address must NOT be used because Keycloak's FederatedJWTClientValidator
+    checks the aud claim via string equality against its own issuer, which is always
+    the external URL.
+    */ -}}
+    {{- $audience := printf "%s/realms/%s" .Values.keycloak.publicUrl .Values.keycloak.realm -}}
     {{- if not (hasPrefix "http" $audience) -}}
-    {{- fail (printf "spiffe.operatorAuth.jwtAudience (or keycloak.publicUrl) must be set to a valid URL. Got: %q. This must be the Keycloak realm's external issuer URL, e.g. http://keycloak.example.com/realms/kagenti" $audience) -}}
+    {{- fail "keycloak.publicUrl must be set to the external Keycloak URL (e.g. http://keycloak.example.com) when spiffe.operatorAuth.enabled=true" -}}
     {{- end -}}
     jwt_svids = [{
         jwt_audience = "{{ $audience }}"
