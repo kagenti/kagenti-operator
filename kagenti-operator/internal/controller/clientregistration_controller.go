@@ -380,14 +380,18 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			logger.Error(err, "ensure client credentials secret")
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
+		// Annotate the pod template with the secret name so the webhook mounts it.
+		if err := patchTemplate(ctx); err != nil {
+			logger.Error(err, "patch workload pod template")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
 	} else {
-		logger.V(1).Info("skipping credential secret (federated-jwt mode — AuthBridge uses SPIFFE identity directly)",
+		// In federated-jwt mode, AuthBridge reads JWT-SVIDs directly from the SPIFFE
+		// workload API socket — no credential secret is needed or created. Skip both the
+		// secret and the pod template annotation so the webhook does not try to mount a
+		// non-existent secret.
+		logger.V(1).Info("skipping credential secret and template patch (federated-jwt — AuthBridge uses SPIFFE identity directly)",
 			"workload", workloadName, "namespace", ns)
-	}
-
-	if err := patchTemplate(ctx); err != nil {
-		logger.Error(err, "patch workload pod template")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	logger.Info("operator client registration applied",
