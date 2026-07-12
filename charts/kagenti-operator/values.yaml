@@ -210,8 +210,6 @@ spiffe:
     spiffeHelper:
       image:
         repository: ghcr.io/kagenti/kagenti-extensions/spiffe-helper
-        # v0.5.0-rc.3 is the latest published versioned tag in the kagenti-extensions registry.
-        # Note: not all GitHub release tags produce container images — check ghcr.io before bumping.
         tag: v0.5.0-rc.3
         pullPolicy: IfNotPresent
 
