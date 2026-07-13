@@ -96,16 +96,23 @@ func (w *AuthBridgeWebhook) Handle(ctx context.Context, req admission.Request) a
 	// kubelet will wait for the Secret to appear and mount it — no pod restart required.
 	// Without this, the first pod comes up with an empty /shared/ and envoy returns 503
 	// "identity not yet configured (credentials pending)" until the user deletes the pod.
+	//
+	// Skip in federated-jwt mode: AuthBridge reads JWT-SVIDs from the SPIFFE workload API
+	// socket directly and no credential Secret is created or needed. Injecting the volume
+	// mount for a non-existent Secret would leave pods stuck in Init.
 	if pod.Annotations[injector.AnnotationKeycloakClientSecretName] == "" &&
 		clientreg.WorkloadWantsOperatorClientReg(pod.Labels, w.Mutator.GetFeatureGates().InjectTools) {
-		if pod.Annotations == nil {
-			pod.Annotations = map[string]string{}
+		nsConfig, _ := injector.ReadNamespaceConfig(ctx, w.Mutator.APIReader, req.Namespace)
+		if nsConfig == nil || nsConfig.ClientAuthType != injector.ClientAuthTypeFederatedJWT {
+			if pod.Annotations == nil {
+				pod.Annotations = map[string]string{}
+			}
+			pod.Annotations[injector.AnnotationKeycloakClientSecretName] =
+				clientreg.KeycloakClientCredentialsSecretName(req.Namespace, resourceName)
+			authbridgelog.Info("pre-populated Keycloak client credentials annotation",
+				"namespace", req.Namespace, "name", resourceName,
+				"secret", pod.Annotations[injector.AnnotationKeycloakClientSecretName])
 		}
-		pod.Annotations[injector.AnnotationKeycloakClientSecretName] =
-			clientreg.KeycloakClientCredentialsSecretName(req.Namespace, resourceName)
-		authbridgelog.Info("pre-populated Keycloak client credentials annotation",
-			"namespace", req.Namespace, "name", resourceName,
-			"secret", pod.Annotations[injector.AnnotationKeycloakClientSecretName])
 	}
 
 	// Check if already injected (idempotency / reinvocation)

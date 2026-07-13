@@ -190,23 +190,23 @@ sigstore:
       configMapKey: "trusted-root.json"
 
 # [SPIFFE OPERATOR AUTH]: Operator authentication to Keycloak using JWT-SVID
-# When enabled, the operator uses its SPIFFE identity (JWT-SVID) to authenticate
-# to Keycloak instead of admin credentials. Requires Keycloak SPIFFE IdP configured.
+# spiffe.enabled — master switch indicating that SPIRE is present in the cluster
+# and SPIFFE workload identities are available. Set to true whenever --with-spire
+# is used. Features that consume SPIFFE identities (e.g. verified-fetch, operatorAuth)
+# each have their own sub-flag; this top-level switch guards them all.
+#
+# spiffe.operatorAuth — controls how the operator authenticates to the Keycloak
+# Admin API when registering agent OAuth clients. When disabled (default), the
+# operator uses admin credentials from keycloak-admin-secret. When enabled, the
+# operator uses its own SPIFFE JWT-SVID, eliminating the need for that secret.
+# This is independent of how agent/tool workloads authenticate (see authBridge
+# clientAuthType in the kagenti chart).
 spiffe:
   enabled: false
   operatorAuth:
     enabled: false
-    # JWT audience must match Keycloak's realm issuer URL exactly.
-    # If not set, defaults to: {{ .Values.keycloak.publicUrl }}/realms/{{ .Values.keycloak.realm }}
-    # Check Keycloak's .well-known/openid-configuration for the correct issuer value.
-    jwtAudience: ""
     # Path to JWT-SVID file written by spiffe-helper sidecar
     jwtSVIDPath: "/opt/jwt_svid.token"
-    spiffeHelper:
-      image:
-        repository: ghcr.io/kagenti/kagenti-extensions/spiffe-helper
-        tag: v0.6.0-alpha.4
-        pullPolicy: IfNotPresent
 
 # Feature gates — highest-priority layer in the injection precedence chain.
 # Set globalEnabled to false to disable ALL sidecar injection (kill switch).
