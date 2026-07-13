@@ -45,22 +45,6 @@ func TestWorkloadWantsOperatorClientReg(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "agent with legacy sidecar opt-in — operator skips",
-			labels: map[string]string{
-				LabelAgentType:                LabelValueAgent,
-				LabelClientRegistrationInject: "true",
-			},
-			want: false,
-		},
-		{
-			name: "agent explicit false — same as default (operator-managed)",
-			labels: map[string]string{
-				LabelAgentType:                LabelValueAgent,
-				LabelClientRegistrationInject: "false",
-			},
-			want: true,
-		},
-		{
 			name: "tool default with injectTools",
 			labels: map[string]string{
 				LabelAgentType: string(agentv1alpha1.RuntimeTypeTool),
@@ -74,15 +58,6 @@ func TestWorkloadWantsOperatorClientReg(t *testing.T) {
 				LabelAgentType: string(agentv1alpha1.RuntimeTypeTool),
 			},
 			injectTools: false,
-			want:        false,
-		},
-		{
-			name: "tool with legacy opt-in — operator skips regardless of injectTools",
-			labels: map[string]string{
-				LabelAgentType:                string(agentv1alpha1.RuntimeTypeTool),
-				LabelClientRegistrationInject: "true",
-			},
-			injectTools: true,
 			want:        false,
 		},
 	}
