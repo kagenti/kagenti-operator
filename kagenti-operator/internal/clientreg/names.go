@@ -19,10 +19,6 @@ import (
 )
 
 const (
-	// LabelClientRegistrationInject: when "true", the workload opts into the legacy
-	// client-registration sidecar and operator-managed registration is skipped.
-	LabelClientRegistrationInject = "kagenti.io/client-registration-inject"
-
 	// LabelAgentType distinguishes agents from tools; operator-managed registration runs for
 	// agents unconditionally and for tools only when the injectTools feature gate is on.
 	LabelAgentType  = "kagenti.io/type"
@@ -54,9 +50,6 @@ func KeycloakClientCredentialsSecretName(namespace, workload string) string {
 func SkipReason(labels map[string]string, injectTools bool) string {
 	if labels == nil {
 		return "pod template has no labels"
-	}
-	if labels[LabelClientRegistrationInject] == "true" {
-		return fmt.Sprintf("%s is \"true\" (legacy webhook client-registration sidecar; operator-managed registration disabled for this workload)", LabelClientRegistrationInject)
 	}
 	switch labels[LabelAgentType] {
 	case LabelValueAgent:

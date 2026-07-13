@@ -45,12 +45,6 @@ const (
 	// keycloakInitialAdminSecret is the RHBK-managed secret with keys "username"/"password".
 	keycloakInitialAdminSecret = "keycloak-initial-admin"
 
-	// LabelClientRegistrationInject: when not "true", the operator registers the OAuth client and sets
-	// AnnotationKeycloakClientSecretName. Value "true" opts the workload into the legacy webhook
-	// client-registration sidecar; the operator skips registration for that workload.
-	// Re-exported from internal/clientreg so existing callers keep working.
-	LabelClientRegistrationInject = clientreg.LabelClientRegistrationInject
-
 	// AnnotationKeycloakClientSecretName must match kagenti-webhook injector.AnnotationKeycloakClientSecretName.
 	// Re-exported from internal/clientreg to give both the controller and the webhook one source of truth.
 	AnnotationKeycloakClientSecretName = clientreg.AnnotationKeycloakClientSecretName
