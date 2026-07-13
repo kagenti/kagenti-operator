@@ -193,8 +193,8 @@ spec:
             {{- end }}
         {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
         - name: spiffe-helper
-          image: {{ .Values.spiffe.operatorAuth.spiffeHelper.image.repository | default "ghcr.io/kagenti/kagenti-extensions/spiffe-helper" }}:{{ .Values.spiffe.operatorAuth.spiffeHelper.image.tag | default "latest" }}
-          imagePullPolicy: {{ .Values.spiffe.operatorAuth.spiffeHelper.image.pullPolicy | default "IfNotPresent" }}
+          image: ghcr.io/kagenti/kagenti-extensions/spiffe-helper:latest
+          imagePullPolicy: IfNotPresent
           args:
             - "-config"
             - "/etc/spiffe-helper/config.hcl"
