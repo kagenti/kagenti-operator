@@ -10,11 +10,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -80,15 +81,16 @@ type ClientRegistrationReconciler struct {
 	KeycloakAdminTokenCache *keycloak.CachedAdminTokenProvider
 
 	// UseSpiffeAuth enables JWT-SVID authentication instead of admin credentials.
-	// When true, the operator authenticates to Keycloak with its JWT-SVID and uses
-	// the Admin API with manage-clients role. When false, uses admin credentials.
+	// When true, the operator fetches a JWT-SVID from SPIRE via the go-spiffe SDK
+	// and uses it with the Keycloak Admin API (manage-clients role only).
+	// When false, uses admin credentials.
 	UseSpiffeAuth bool
 
-	// JWTSVIDPath is the file path to read the operator's JWT-SVID from.
-	// Only used when UseSpiffeAuth is true. Default: /opt/jwt_svid.token
-	JWTSVIDPath string
+	// SpiffeSocket is the SPIRE workload API socket address used to fetch JWT-SVIDs.
+	// Only used when UseSpiffeAuth is true. Defaults to the verified-fetch socket.
+	SpiffeSocket string
 
-	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/kagenti-operator-system/sa/...).
+	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/kagenti-system/sa/controller-manager).
 	// Only used when UseSpiffeAuth is true.
 	OperatorClientID string
 
@@ -269,8 +271,6 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 
 	// Authenticate to Keycloak: use JWT-SVID if enabled, otherwise admin credentials
 	if r.UseSpiffeAuth {
-		// SPIFFE authentication path
-		// Validate OperatorClientID before file I/O to fail fast on misconfiguration
 		if r.OperatorClientID == "" {
 			err := fmt.Errorf("OperatorClientID not configured")
 			logger.Error(err, "SPIFFE auth requires OperatorClientID")
@@ -281,36 +281,40 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		jwtSVIDPath := r.JWTSVIDPath
-		if jwtSVIDPath == "" {
-			jwtSVIDPath = "/opt/jwt_svid.token"
+		socket := r.SpiffeSocket
+		if socket == "" {
+			socket = "unix:///spiffe-workload-api/spire-agent.sock"
 		}
 
-		// Path traversal protection: only allow reading from designated directories
-		cleanPath := filepath.Clean(jwtSVIDPath)
-		if !strings.HasPrefix(cleanPath, "/opt/") && !strings.HasPrefix(cleanPath, "/var/run/secrets/") {
-			err := fmt.Errorf("JWT-SVID path %q outside allowed directories (/opt/, /var/run/secrets/)", jwtSVIDPath)
-			logger.Error(err, "invalid JWT-SVID path")
-			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "InvalidJWTSVIDPath",
-					"JWT-SVID path %q rejected: must be under /opt/ or /var/run/secrets/", jwtSVIDPath)
-			}
-			return ctrl.Result{}, err // fail permanently on config error
-		}
-
-		jwtSVID, err := os.ReadFile(cleanPath)
+		// Fetch a JWT-SVID directly from the SPIRE workload API using the go-spiffe SDK.
+		// This is the same socket used by verifiedFetch — no sidecar or file needed.
+		// The audience must be the Keycloak realm's issuer URL (external URL, not in-cluster).
+		// The JWT-SVID audience must be the Keycloak realm's issuer URL (external/public URL).
+		// Keycloak's FederatedJWTClientValidator checks aud == its own issuer string.
+		audience := fmt.Sprintf("%s/realms/%s", strings.TrimRight(ab.KeycloakURL, "/"), ab.KeycloakRealm)
+		spiffeClient, err := workloadapi.New(ctx, workloadapi.WithAddr(socket))
 		if err != nil {
-			logger.Error(err, "read JWT-SVID failed", "path", cleanPath)
+			logger.Error(err, "failed to create SPIFFE workload API client")
 			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDReadFailed",
-					"Failed to read JWT-SVID from %s: %v. Check spiffe-helper sidecar configuration.", cleanPath, err)
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "SPIFFEClientFailed",
+					"Failed to connect to SPIRE workload API at %s: %v", socket, err)
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		defer spiffeClient.Close()
+
+		svid, err := spiffeClient.FetchJWTSVID(ctx, jwtsvid.Params{Audience: audience})
+		if err != nil {
+			logger.Error(err, "failed to fetch JWT-SVID from SPIRE")
+			if r.Recorder != nil {
+				r.Recorder.Event(owner, corev1.EventTypeWarning, "JWTSVIDFetchFailed",
+					"Failed to fetch JWT-SVID from SPIRE workload API. Check SPIRE is running and the operator has a registered identity.")
 			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		// WARNING: JWT-SVID is a bearer token - must never appear in logs or error messages
-		// to prevent token exposure. All code paths must handle jwtSVID as sensitive data.
-		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, string(jwtSVID))
+		// WARNING: JWT-SVID is a bearer token — must never appear in logs or error messages.
+		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, svid.Marshal())
 		if err != nil {
 			logger.Error(err, "Keycloak JWT-SVID authentication failed")
 			if r.Recorder != nil {
@@ -319,7 +323,7 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
-		logger.V(1).Info("authenticated with JWT-SVID", "clientId", r.OperatorClientID)
+		logger.V(1).Info("authenticated with JWT-SVID via SPIRE workload API", "clientId", r.OperatorClientID)
 	} else {
 		// Admin credentials path (legacy)
 		adminUser, adminPass, err := r.resolveKeycloakAdminCredentials(ctx)
