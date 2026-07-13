@@ -370,15 +370,28 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			"clientId", clientID)
 	}
 
+	// In federated-jwt mode, agents authenticate using their SPIFFE identity directly.
+	// No credential secret is needed — AuthBridge reads JWT-SVIDs from the workload
+	// API socket, not from a mounted secret. Skipping secret creation avoids leaving
+	// unused Keycloak client secrets in agent namespaces.
 	secretName := keycloakClientCredentialsSecretName(ns, workloadName)
-	if err := r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
-		logger.Error(err, "ensure client credentials secret")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
-	}
-
-	if err := patchTemplate(ctx); err != nil {
-		logger.Error(err, "patch workload pod template")
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	if authType != "federated-jwt" {
+		if err := r.ensureClientCredentialsSecret(ctx, owner, secretName, clientID, clientSecret); err != nil {
+			logger.Error(err, "ensure client credentials secret")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+		// Annotate the pod template with the secret name so the webhook mounts it.
+		if err := patchTemplate(ctx); err != nil {
+			logger.Error(err, "patch workload pod template")
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+	} else {
+		// In federated-jwt mode, AuthBridge reads JWT-SVIDs directly from the SPIFFE
+		// workload API socket — no credential secret is needed or created. Skip both the
+		// secret and the pod template annotation so the webhook does not try to mount a
+		// non-existent secret.
+		logger.V(1).Info("skipping credential secret and template patch (federated-jwt — AuthBridge uses SPIFFE identity directly)",
+			"workload", workloadName, "namespace", ns)
 	}
 
 	logger.Info("operator client registration applied",
