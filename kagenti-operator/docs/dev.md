@@ -589,7 +589,7 @@ kubectl delete agentcard my-agent-deployment-card --grace-period=0 --force
 ## Getting Help
 
 - **GitHub Issues**: [Report bugs or request features](https://github.com/kagenti/kagenti-operator/issues)
-- **Discussions**: [Ask questions](https://github.com/kagenti/kagenti-operator/discussions)
+- **Issues**: [Ask questions or report bugs](https://github.com/kagenti/kagenti-operator/issues)
 - **Contributing**: See [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ---

@@ -276,5 +276,5 @@ The operator supports running in hybrid mode indefinitely, so you can migrate gr
 ## Support
 
 For questions or issues:
-- Open an issue at https://github.com/kagenti/operator/issues
+- Open an issue at https://github.com/kagenti/kagenti-operator/issues
 - Refer to the full migration plan in the project documentation.
