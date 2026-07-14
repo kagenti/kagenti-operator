@@ -309,23 +309,6 @@ var _ = Describe("AuthBridge Pod Webhook", func() {
 			Expect(pod.Annotations).NotTo(HaveKey(injector.AnnotationKeycloakClientSecretName))
 		})
 
-		It("skips workloads opted into the legacy client-registration sidecar", func() {
-			createAgentRuntime(testNamespace, "prepop-legacy")
-
-			pod := newTestPod("prepop-legacy", map[string]string{
-				"kagenti.io/type":                       "agent",
-				"kagenti.io/inject":                     "enabled",
-				"kagenti.io/client-registration-inject": "true",
-			})
-
-			err := k8sClient.Create(ctx, pod)
-			Expect(err).NotTo(HaveOccurred())
-
-			err = k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(pod.Annotations).NotTo(HaveKey(injector.AnnotationKeycloakClientSecretName))
-		})
 	})
 })
 

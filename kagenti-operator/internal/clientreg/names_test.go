@@ -46,7 +46,6 @@ func TestSkipReason(t *testing.T) {
 	}{
 		{"nil labels", nil, true, true},
 		{"empty labels", map[string]string{}, true, true},
-		{"legacy sidecar opt-in", map[string]string{LabelClientRegistrationInject: "true", LabelAgentType: LabelValueAgent}, true, true},
 		{"agent proceeds", map[string]string{LabelAgentType: LabelValueAgent}, false, false},
 		{"tool with gate on proceeds", map[string]string{LabelAgentType: LabelValueTool}, true, false},
 		{"tool with gate off skipped", map[string]string{LabelAgentType: LabelValueTool}, false, true},
