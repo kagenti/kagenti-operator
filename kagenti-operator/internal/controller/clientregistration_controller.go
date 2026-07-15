@@ -565,11 +565,11 @@ func (r *ClientRegistrationReconciler) ensureClientCredentialsSecret(ctx context
 		if sec.StringData == nil {
 			sec.StringData = map[string]string{}
 		}
-		// client-secret.txt is omitted in federated-jwt mode (empty string) — agents
-		// authenticate via JWT-SVID and have no Keycloak client secret to store.
-		if clientSecret != "" {
-			sec.StringData["client-secret.txt"] = clientSecret
-		}
+		// In federated-jwt mode clientSecret is empty — agents authenticate via JWT-SVID.
+		// We still write client-secret.txt (as an empty string) so the webhook's subPath
+		// mount produces a file rather than a directory (Kubernetes creates a directory
+		// when a subPath key is absent from the Secret).
+		sec.StringData["client-secret.txt"] = clientSecret
 		sec.StringData["client-id.txt"] = clientID
 		return controllerutil.SetControllerReference(owner, sec, r.Scheme)
 	})
