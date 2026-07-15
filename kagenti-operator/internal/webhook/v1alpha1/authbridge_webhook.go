@@ -97,22 +97,20 @@ func (w *AuthBridgeWebhook) Handle(ctx context.Context, req admission.Request) a
 	// Without this, the first pod comes up with an empty /shared/ and envoy returns 503
 	// "identity not yet configured (credentials pending)" until the user deletes the pod.
 	//
-	// Skip in federated-jwt mode: AuthBridge reads JWT-SVIDs from the SPIFFE workload API
-	// socket directly and no credential Secret is created or needed. Injecting the volume
-	// mount for a non-existent Secret would leave pods stuck in Init.
+	// In federated-jwt mode the Secret still exists (written by the operator with only
+	// client-id.txt, no client-secret.txt) so the volume mount is still needed. The
+	// inbound jwt-validation plugin reads client-id.txt to determine the expected audience;
+	// without the mount the plugin polls forever and rejects all inbound traffic with 503.
 	if pod.Annotations[injector.AnnotationKeycloakClientSecretName] == "" &&
 		clientreg.WorkloadWantsOperatorClientReg(pod.Labels, w.Mutator.GetFeatureGates().InjectTools) {
-		nsConfig, _ := injector.ReadNamespaceConfig(ctx, w.Mutator.APIReader, req.Namespace)
-		if nsConfig == nil || nsConfig.ClientAuthType != injector.ClientAuthTypeFederatedJWT {
-			if pod.Annotations == nil {
-				pod.Annotations = map[string]string{}
-			}
-			pod.Annotations[injector.AnnotationKeycloakClientSecretName] =
-				clientreg.KeycloakClientCredentialsSecretName(req.Namespace, resourceName)
-			authbridgelog.Info("pre-populated Keycloak client credentials annotation",
-				"namespace", req.Namespace, "name", resourceName,
-				"secret", pod.Annotations[injector.AnnotationKeycloakClientSecretName])
+		if pod.Annotations == nil {
+			pod.Annotations = map[string]string{}
 		}
+		pod.Annotations[injector.AnnotationKeycloakClientSecretName] =
+			clientreg.KeycloakClientCredentialsSecretName(req.Namespace, resourceName)
+		authbridgelog.Info("pre-populated Keycloak client credentials annotation",
+			"namespace", req.Namespace, "name", resourceName,
+			"secret", pod.Annotations[injector.AnnotationKeycloakClientSecretName])
 	}
 
 	// Check if already injected (idempotency / reinvocation)
