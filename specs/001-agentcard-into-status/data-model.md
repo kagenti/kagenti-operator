@@ -31,7 +31,7 @@ Added to `AgentRuntimeStatus` as an optional field.
 | `signatureVerificationDetails` | string | Verification details/error message | New field |
 | `attestedAgentSpiffeID` | string | SPIFFE ID from mTLS peer certificate | New field |
 
-**Note**: Change-detection hash (`lastPodTemplateHash`) is stored as an annotation (`agent.kagenti.dev/last-card-fetch-hash`) on the AgentRuntime, not in the CRD status. This keeps the implementation mechanism out of the public API surface.
+**Note**: Change-detection hash (`lastPodTemplateHash`) is stored as an annotation (`agent.rossoctl.dev/last-card-fetch-hash`) on the AgentRuntime, not in the CRD status. This keeps the implementation mechanism out of the public API surface.
 
 ### Modified: AgentRuntimeStatus
 

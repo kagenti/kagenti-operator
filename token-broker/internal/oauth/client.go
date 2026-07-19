@@ -11,7 +11,7 @@ import (
 	"strings"
 
 	// Reuse existing PKCE implementation
-	pkgauth "github.com/kagenti/token-broker/pkg/oauth"
+	pkgauth "github.com/rossoctl/token-broker/pkg/oauth"
 )
 
 // Config holds OAuth client configuration for the Token Broker.

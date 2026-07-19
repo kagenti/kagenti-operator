@@ -10,14 +10,14 @@ please report it responsibly.
 1. **Do NOT create public GitHub issues** for security vulnerabilities
 2. **GitHub Security Advisories (preferred)**: Report vulnerabilities privately via
    [GitHub Security Advisories](../../security/advisories/new)
-3. **Email**: Send reports to **security@kagenti.io**
+3. **Email**: Send reports to **security@rossoctl.io**
 4. **Include**: A clear description of the vulnerability, steps to reproduce,
    and potential impact
 
 ### Security Contacts
 
-- **kagenti-maintainers@googlegroups.com**
-- **security@kagenti.io**
+- **rossoctl-maintainers@googlegroups.com**
+- **security@rossoctl.io**
 
 ### What to Expect
 
@@ -43,7 +43,7 @@ This project implements several security controls:
 
 ## Operator-Specific Security
 
-The kagenti-operator manages trusted workload identity and agent card signatures:
+The rossoctl-operator manages trusted workload identity and agent card signatures:
 
 - **SPIFFE/SPIRE Integration**: Workload identity via x509-SVIDs
 - **Agent Card Signing**: JWS signatures with x5c certificate chains (A2A spec §8.4.2)

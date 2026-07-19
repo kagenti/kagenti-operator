@@ -15,7 +15,7 @@
 
 ## R2: Card Fetch Trigger Mechanism
 
-**Decision**: Pod template hash change detection. The AgentRuntime controller already watches workloads and reconciles on changes. The card fetch phase checks whether the workload's pod-template-hash (or generation for StatefulSets/Sandboxes) has changed since the last successful fetch by comparing against a hash stored in an annotation (`agent.kagenti.dev/last-card-fetch-hash`), not in the CRD status API surface.
+**Decision**: Pod template hash change detection. The AgentRuntime controller already watches workloads and reconciles on changes. The card fetch phase checks whether the workload's pod-template-hash (or generation for StatefulSets/Sandboxes) has changed since the last successful fetch by comparing against a hash stored in an annotation (`agent.rossoctl.dev/last-card-fetch-hash`), not in the CRD status API surface.
 
 **Rationale**: Avoids unnecessary HTTP calls on every reconcile. Pod template hash changes correlate with actual code/config changes that could affect the agent card. The AgentRuntime controller already reconciles on Deployment changes, so no new watches needed.
 
@@ -61,7 +61,7 @@
 - Fetch metadata: `fetchedAt` (timestamp), `cardId` (SHA-256 content hash), `protocol` (detected agent protocol)
 - Verification: `validSignature` (bool), `signatureKeyID`, `attestedAgentSpiffeID`, `signatureVerificationDetails`
 
-**Note (from review feedback)**: `lastPodTemplateHash` was originally in this struct but moved to an annotation (`agent.kagenti.dev/last-card-fetch-hash`) to avoid coupling the change-detection mechanism to the public API surface.
+**Note (from review feedback)**: `lastPodTemplateHash` was originally in this struct but moved to an annotation (`agent.rossoctl.dev/last-card-fetch-hash`) to avoid coupling the change-detection mechanism to the public API surface.
 
 ## R6: Deprecation Warning Implementation
 

@@ -46,7 +46,7 @@ specs/002-card-discovery-alignment/
 ### Source Code (files to modify)
 
 ```text
-kagenti-operator/
+operator/
 ├── api/v1alpha1/
 │   ├── agentruntime_types.go          # CardStatus struct (field renames + new field)
 │   └── zz_generated.deepcopy.go       # Auto-generated
@@ -54,12 +54,12 @@ kagenti-operator/
 │   └── main.go                        # No changes needed (fetcher wiring unchanged)
 ├── config/
 │   ├── crd/bases/
-│   │   └── agent.kagenti.dev_agentruntimes.yaml  # CRD schema
+│   │   └── agent.rossoctl.dev_agentruntimes.yaml  # CRD schema
 │   └── rbac/
 │       └── role.yaml                  # No changes needed
-├── charts/kagenti-operator/
+├── charts/operator/
 │   └── crds/
-│       └── agent.kagenti.dev_agentruntimes.yaml  # Helm chart CRD
+│       └── agent.rossoctl.dev_agentruntimes.yaml  # Helm chart CRD
 ├── internal/controller/
 │   ├── agentruntime_controller.go     # Condition constants, fetchAndUpdateCard, serviceHTTPPort
 │   └── agentruntime_controller_test.go # All card-related tests

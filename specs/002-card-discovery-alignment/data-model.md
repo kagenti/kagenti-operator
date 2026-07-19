@@ -75,6 +75,6 @@ type CardStatus struct {
 
 | Annotation | Scope | Type | Example |
 |------------|-------|------|---------|
-| `kagenti.io/port` | Service | string (numeric) | `"9090"` |
+| `rossoctl.io/port` | Service | string (numeric) | `"9090"` |
 
 Resolution chain: annotation > port named `a2a` > port named `http` > first port > default 8000

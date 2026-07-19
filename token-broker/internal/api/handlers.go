@@ -10,9 +10,9 @@ import (
 	"net/url"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/kagenti/kagenti-extensions/authbridge/authlib/plugins/jwtvalidation/validation"
-	"github.com/kagenti/token-broker/internal/auth"
-	"github.com/kagenti/token-broker/internal/core"
+	"github.com/rossoctl/rossocortex/authbridge/authlib/plugins/jwtvalidation/validation"
+	"github.com/rossoctl/token-broker/internal/auth"
+	"github.com/rossoctl/token-broker/internal/core"
 )
 
 // TokenBroker defines the interface for token acquisition operations.

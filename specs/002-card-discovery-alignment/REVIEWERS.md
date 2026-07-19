@@ -14,7 +14,7 @@ Six breaking changes to the AgentRuntime CRD status fields:
 2. Condition type renamed from `CardSynced` to `CardFetched` with transport-aware reasons (`Fetched` vs `FetchedInsecure`)
 3. `cardId` field renamed to `cardHash` (it holds a SHA-256 content hash, not an identifier)
 4. `fetchedAt` field renamed to `lastCardFetchTime` (clarifies this is the controller's fetch timestamp, not the card's creation time)
-5. Port resolution now checks `kagenti.io/port` annotation, then port named `a2a`, before falling back to `http`/first port
+5. Port resolution now checks `rossoctl.io/port` annotation, then port named `a2a`, before falling back to `http`/first port
 6. New `WorkloadNotReady` condition reason split from `ServiceNotFound`
 
 All changes are backward-incompatible CRD field/condition renames. No migration needed since there are no consumers yet.
@@ -50,7 +50,7 @@ The changes modify four layers:
 
 2. **Condition model where every reason maps to one diagnostic action.** `CardFetched` as the type (past participle, like Kubernetes' `Scheduled` or `Initialized`) instead of `CardSynced` (implies polling, which we don't do). Transport-aware reasons (`Fetched` vs `FetchedInsecure`) for security visibility. `WorkloadNotReady` split from `ServiceNotFound` because they require different operator responses (wait vs check config). `FetchSkipped` and `DiscoveryDisabled` retained from PR #372 for feature flag and no-op cases.
 
-3. **Port resolution with annotation escape hatch.** The `kagenti.io/port` annotation on Services handles multi-port edge cases where auto-detection picks the wrong port. The `a2a` port name takes priority over generic `http` because we're specifically fetching A2A protocol cards.
+3. **Port resolution with annotation escape hatch.** The `rossoctl.io/port` annotation on Services handles multi-port edge cases where auto-detection picks the wrong port. The `a2a` port name takes priority over generic `http` because we're specifically fetching A2A protocol cards.
 
 4. **`cardHash` over `cardId`.** The field holds a SHA-256 content hash for change detection, not a unique identifier. `cardId` suggests a stable ID (like a UUID); `cardHash` accurately conveys "content fingerprint that changes when the card changes."
 

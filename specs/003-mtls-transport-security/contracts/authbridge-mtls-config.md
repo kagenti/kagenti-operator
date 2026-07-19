@@ -4,7 +4,7 @@
 
 ## Owner
 
-kagenti-operator controller + webhook (producer) → authbridge sidecar (consumer)
+rossoctl-operator controller + webhook (producer) → authbridge sidecar (consumer)
 
 ## Current Contract: Annotation + Env Var
 
@@ -15,7 +15,7 @@ The controller sets an annotation on the workload's pod template:
 ```yaml
 metadata:
   annotations:
-    kagenti.io/mtls-mode: "permissive"  # or "strict" or "disabled"
+    rossoctl.io/mtls-mode: "permissive"  # or "strict" or "disabled"
 ```
 
 When `mTLSMode` changes on the AgentRuntime CR, this annotation changes, triggering a rolling restart via Kubernetes pod template change detection.
@@ -44,7 +44,7 @@ Authbridge reads `MTLS_MODE` at startup to configure its TLS listeners.
 
 | Component | Responsibility |
 |-----------|---------------|
-| **Controller** | Sets `kagenti.io/mtls-mode` annotation on pod template. Triggers rolling restart on change. |
+| **Controller** | Sets `rossoctl.io/mtls-mode` annotation on pod template. Triggers rolling restart on change. |
 | **Webhook** | Reads `mTLSMode` from AgentRuntime CR at pod CREATE. Sets `MTLS_MODE` env var on authbridge container. |
 | **Authbridge** | Reads `MTLS_MODE` env var at startup. Configures TLS listeners accordingly. No Kubernetes API dependency. |
 

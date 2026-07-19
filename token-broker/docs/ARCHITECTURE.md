@@ -4,7 +4,7 @@
 
 The Token Broker enables **HITL (Human-in-the-Loop) Authorization**: when an agent needs access to a resource that requires OAuth permissions not already present in its token, the Token Broker brings the user into the loop via an OAuth 2.0 PKCE flow and caches the resulting access token for the session.
 
-Kagenti supports three route types for outbound agent requests:
+Rossoctl supports three route types for outbound agent requests:
 - **Passthrough** — forward the token as-is
 - **Token Exchange** — use a subset of permissions already in the agent's token
 - **Token Broker** — obtain additional permissions with the user's help (this service)

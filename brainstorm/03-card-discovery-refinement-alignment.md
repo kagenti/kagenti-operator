@@ -122,18 +122,18 @@ The PR just merged. No external consumers depend on the `CardSynced` condition t
 
 **Current implementation:** `serviceHTTPPort()` looks for generic HTTP port names (`http`, `https`, `grpc`), falls back to first port.
 
-**Refinement doc:** `kagenti.io/port annotation` -> port named `a2a` -> first port -> default 8000.
+**Refinement doc:** `rossoctl.io/port annotation` -> port named `a2a` -> first port -> default 8000.
 
 **Why the doc's approach is better:**
 
 1. **Protocol-specific port name (`a2a`)**: We're fetching A2A agent cards, not generic HTTP content. If a Service has an admin port named `http` on port 80 and an A2A port named `a2a` on port 8000, our current code picks the wrong one.
 
-2. **Annotation escape hatch (`kagenti.io/port`)**: Standard Kubernetes pattern for when auto-detection fails. Near-zero implementation cost (check one annotation before the existing port resolution). Useful for multi-port Services, non-standard configurations, or when the A2A endpoint runs on an unusual port.
+2. **Annotation escape hatch (`rossoctl.io/port`)**: Standard Kubernetes pattern for when auto-detection fails. Near-zero implementation cost (check one annotation before the existing port resolution). Useful for multi-port Services, non-standard configurations, or when the A2A endpoint runs on an unusual port.
 
 3. **Default 8000**: The A2A Python SDK defaults to port 8000. Our current code has no default and relies entirely on what's in the Service spec.
 
 **Proposed resolution chain:**
-1. `kagenti.io/port` annotation on the Service (explicit override, highest priority)
+1. `rossoctl.io/port` annotation on the Service (explicit override, highest priority)
 2. Service port named `a2a` (protocol-specific match)
 3. Service port named `http` (generic fallback, backward compatible)
 4. First port in Service spec (last resort)

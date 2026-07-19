@@ -1,0 +1,84 @@
+# AgentRuntime with skill discovery: reads the rossoctl.io/skills annotation
+# from the target workload to discover linked skills.
+# Requires: skillDiscovery feature gate enabled.
+#
+# Skills are declared on the Deployment, not the AgentRuntime.
+# Two delivery mechanisms are supported:
+#
+# 1. OCI ImageVolumes (user-managed, GitOps-friendly, K8s 1.31+):
+#    volumes:
+#      - name: skill-openshift-review
+#        image:
+#          reference: quay.io/myorg/openshift-review:1.0.0
+#
+# 2. ConfigMap volumes (rossoctl backend, PR #1440):
+#    volumes:
+#      - name: skill-0
+#        configMap:
+#          name: summarizer
+#
+# Both paths set SKILL_FOLDERS so the agent discovers skills at startup.
+# The agent reports discovered skills in its A2A card.
+# The operator reads the rossoctl.io/skills annotation and populates
+# status.linkedSkills.
+---
+# Example Deployment with OCI skill ImageVolume
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-agent
+  labels:
+    app.kubernetes.io/name: my-agent
+    protocol.rossoctl.io/a2a: ""
+  annotations:
+    rossoctl.io/skills: '["openshift-review"]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: my-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: my-agent
+        rossoctl.io/type: agent
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: agent
+          image: ghcr.io/rossoctl/examples/a2a_currency_converter:v0.1.0-alpha.1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - containerPort: 8000
+          env:
+            - name: SKILL_FOLDERS
+              value: /app/skills/openshift-review
+          volumeMounts:
+            - name: skill-openshift-review
+              mountPath: /app/skills/openshift-review
+              readOnly: true
+      volumes:
+        - name: skill-openshift-review
+          image:
+            reference: quay.io/myorg/openshift-review:1.0.0
+---
+# AgentRuntime observes the Deployment — no spec.skills needed
+apiVersion: agent.rossoctl.dev/v1alpha1
+kind: AgentRuntime
+metadata:
+  name: my-agent
+  labels:
+    app.kubernetes.io/name: my-agent
+spec:
+  type: agent
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-agent

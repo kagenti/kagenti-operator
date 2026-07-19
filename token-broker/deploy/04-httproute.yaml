@@ -5,12 +5,12 @@
 # /oauth/callback on the broker — otherwise the redirect 404s and the broker
 # waits for a callback that never arrives.
 #
-# This route lives in kagenti-system (same namespace as the Service AND the
+# This route lives in rossoctl-system (same namespace as the Service AND the
 # gateway), so:
-#   - the parentRef is local (gateway "http" in kagenti-system), and
+#   - the parentRef is local (gateway "http" in rossoctl-system), and
 #   - the backendRef is same-namespace, so NO ReferenceGrant is needed.
 #
-# The kagenti-system namespace carries the label shared-gateway-access: "true",
+# The rossoctl-system namespace carries the label shared-gateway-access: "true",
 # which the "http" gateway's listener selects — same as the working app-demo route.
 #
 # The hostname MUST match the host in the Deployment's OAUTH_CALLBACK_URL.
@@ -19,13 +19,13 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: token-broker-oauth-callback
-  namespace: kagenti-system
+  namespace: rossoctl-system
   labels:
     app: token-broker
 spec:
   parentRefs:
     - name: http
-      namespace: kagenti-system
+      namespace: rossoctl-system
   hostnames:
     - "token-broker.localtest.me"
   rules:

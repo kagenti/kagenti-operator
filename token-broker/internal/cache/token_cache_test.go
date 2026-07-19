@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagenti/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/core"
 )
 
 // FakeClock implements core.Clock for testing.

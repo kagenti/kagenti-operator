@@ -40,11 +40,11 @@ Added to AgentRuntime `status.conditions[]`.
 
 ### New: Pod Template Annotation
 
-The controller sets a `kagenti.io/mtls-mode` annotation on the workload's pod template. This serves two purposes: (1) triggers a rolling restart when the value changes, and (2) makes the mTLS mode visible on the pod.
+The controller sets a `rossoctl.io/mtls-mode` annotation on the workload's pod template. This serves two purposes: (1) triggers a rolling restart when the value changes, and (2) makes the mTLS mode visible on the pod.
 
 | Annotation | Values | Set By |
 |------------|--------|--------|
-| `kagenti.io/mtls-mode` | `permissive`, `strict`, `disabled` | Controller (on pod template) |
+| `rossoctl.io/mtls-mode` | `permissive`, `strict`, `disabled` | Controller (on pod template) |
 
 ### New: Authbridge Sidecar Env Var
 
@@ -68,7 +68,7 @@ The webhook sets an `MTLS_MODE` environment variable on the authbridge sidecar c
 ```
 AgentRuntime.spec.mTLSMode
     │
-    ├── Controller sets kagenti.io/mtls-mode annotation on pod template
+    ├── Controller sets rossoctl.io/mtls-mode annotation on pod template
     │       │
     │       └── Annotation change triggers rolling restart
     │

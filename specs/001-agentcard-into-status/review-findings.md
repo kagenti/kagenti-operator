@@ -23,7 +23,7 @@
 ### FINDING-1
 - **Severity:** Critical
 - **Confidence:** 95
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:635-707
+- **File:** operator/internal/controller/agentruntime_controller.go:635-707
 - **Category:** correctness / production-readiness
 - **Source:** correctness-agent (also reported by: architecture-agent, prod-readiness-agent)
 - **Round found:** 1
@@ -41,7 +41,7 @@ Added `persistCardFetchAnnotation()` using `client.MergeFrom` patch to write the
 ### FINDING-2
 - **Severity:** Critical
 - **Confidence:** 95
-- **File:** kagenti-operator/internal/controller/agentcard_controller_test.go:1726-1818
+- **File:** operator/internal/controller/agentcard_controller_test.go:1726-1818
 - **Category:** test-quality
 - **Source:** test-quality-agent (also reported by: coderabbit)
 - **Round found:** 1
@@ -59,7 +59,7 @@ Added `record.NewFakeRecorder(10)` to the test reconciler and assertion that a "
 ### FINDING-3
 - **Severity:** Critical
 - **Confidence:** 90
-- **File:** kagenti-operator/internal/controller/agentruntime_controller_test.go (missing)
+- **File:** operator/internal/controller/agentruntime_controller_test.go (missing)
 - **Category:** test-quality
 - **Source:** test-quality-agent
 - **Round found:** 1
@@ -77,7 +77,7 @@ Added "Card data retention on fetch failure (FR-013)" test that verifies existin
 ### FINDING-4
 - **Severity:** Important
 - **Confidence:** 80
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:748-761
+- **File:** operator/internal/controller/agentruntime_controller.go:748-761
 - **Category:** correctness
 - **Source:** correctness-agent
 - **Round found:** 1
@@ -95,7 +95,7 @@ The spec says "Pod template hash changes (or generation for StatefulSets/Sandbox
 ### FINDING-5
 - **Severity:** Important
 - **Confidence:** 92
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:501-520
+- **File:** operator/internal/controller/agentruntime_controller.go:501-520
 - **Category:** architecture
 - **Source:** architecture-agent
 - **Round found:** 1
@@ -110,7 +110,7 @@ The functions are small and self-contained. Extracting to a shared utility is a 
 ### FINDING-6
 - **Severity:** Important
 - **Confidence:** 90
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:763-773
+- **File:** operator/internal/controller/agentruntime_controller.go:763-773
 - **Category:** architecture
 - **Source:** architecture-agent
 - **Round found:** 1
@@ -125,7 +125,7 @@ Same as FINDING-5. The duplication will be resolved when AgentCard is fully depr
 ### FINDING-7
 - **Severity:** Important
 - **Confidence:** 85
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:666
+- **File:** operator/internal/controller/agentruntime_controller.go:666
 - **Category:** architecture
 - **Source:** architecture-agent
 - **Round found:** 1
@@ -140,7 +140,7 @@ This feature is specifically about A2A card discovery. The spec only mentions A2
 ### FINDING-8
 - **Severity:** Important
 - **Confidence:** 90
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:200, 668-671
+- **File:** operator/internal/controller/agentruntime_controller.go:200, 668-671
 - **Category:** production-readiness
 - **Source:** prod-readiness-agent
 - **Round found:** 1
@@ -155,7 +155,7 @@ The reconcile loop already re-triggers on any workload change. Card discovery is
 ### FINDING-9
 - **Severity:** Important
 - **Confidence:** 90
-- **File:** kagenti-operator/internal/controller/agentruntime_controller_test.go (missing)
+- **File:** operator/internal/controller/agentruntime_controller_test.go (missing)
 - **Category:** test-quality
 - **Source:** test-quality-agent (also reported by: coderabbit)
 - **Round found:** 1
@@ -170,7 +170,7 @@ The test requires setting up a `mockFetcher` implementation and injecting it int
 ### FINDING-10
 - **Severity:** Important
 - **Confidence:** 50
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:711-745
+- **File:** operator/internal/controller/agentruntime_controller.go:711-745
 - **Category:** security
 - **Source:** security-agent
 - **Round found:** 1

@@ -1,0 +1,67 @@
+{{- if .Values.vap.agentLabelProtection.enable }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: agent-label-protection
+  labels:
+    {{- include "chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: admission
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups:   ["apps"]
+      apiVersions: ["v1"]
+      operations:  ["CREATE", "UPDATE"]
+      resources:   ["deployments", "statefulsets"]
+
+  matchConditions:
+    - name: 'has-agent-type-label'
+      expression: >-
+        (has(object.metadata.labels) && 'rossoctl.io/type' in object.metadata.labels)
+        || (has(object.spec.template.metadata)
+            && has(object.spec.template.metadata.labels)
+            && 'rossoctl.io/type' in object.spec.template.metadata.labels)
+
+    - name: 'not-exempt-service-account'
+      expression: >-
+        !(request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:{{ .Values.controllerManager.serviceAccountName }}')
+        {{- range .Values.vap.agentLabelProtection.exemptServiceAccounts }}
+        && !(request.userInfo.username == 'system:serviceaccount:{{ . }}')
+        {{- end }}
+
+  variables:
+    - name: metaLabelUnchanged
+      expression: >-
+        !('rossoctl.io/type' in object.metadata.labels)
+        || (request.operation == 'UPDATE'
+            && 'rossoctl.io/type' in oldObject.metadata.labels
+            && oldObject.metadata.labels['rossoctl.io/type'] == object.metadata.labels['rossoctl.io/type'])
+
+    - name: podTemplateLabelUnchanged
+      expression: >-
+        !(has(object.spec.template.metadata)
+          && has(object.spec.template.metadata.labels)
+          && 'rossoctl.io/type' in object.spec.template.metadata.labels)
+        || (request.operation == 'UPDATE'
+            && has(oldObject.spec.template.metadata)
+            && has(oldObject.spec.template.metadata.labels)
+            && 'rossoctl.io/type' in oldObject.spec.template.metadata.labels
+            && oldObject.spec.template.metadata.labels['rossoctl.io/type'] == object.spec.template.metadata.labels['rossoctl.io/type'])
+
+  validations:
+    - expression: "variables.metaLabelUnchanged"
+      messageExpression: >-
+        'The rossoctl.io/type label on '
+        + object.metadata.namespace + '/' + object.metadata.name
+        + ' can only be applied by the rossoctl-operator via an AgentRuntime CR.'
+        + ' Create an AgentRuntime targeting this workload instead of manually setting the label.'
+      reason: Forbidden
+    - expression: "variables.podTemplateLabelUnchanged"
+      messageExpression: >-
+        'The rossoctl.io/type label in the pod template of '
+        + object.metadata.namespace + '/' + object.metadata.name
+        + ' can only be applied by the rossoctl-operator via an AgentRuntime CR.'
+        + ' Create an AgentRuntime targeting this workload instead of manually setting the label.'
+      reason: Forbidden
+{{- end }}

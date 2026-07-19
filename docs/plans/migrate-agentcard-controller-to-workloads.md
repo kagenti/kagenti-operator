@@ -2,13 +2,13 @@
 
 **Status:** Draft
 **Created:** 2026-01-30
-**Target:** kagenti-operator v2.x
+**Target:** rossoctl-operator v2.x
 
 ## Executive Summary
 
 This document outlines the migration of the AgentCard controller from watching and reconciling based on the custom `Agent` CRD to watching standard Kubernetes workloads (Deployments and StatefulSets) that are identified by specific labels.
 
-This migration aligns with the Kagenti UI migration documented in [kagenti/docs/plans/migrate-agent-crd-to-workloads.md](https://github.com/kagenti/kagenti/blob/main/docs/plans/migrate-agent-crd-to-workloads.md), where agents are now deployed directly as Deployments/StatefulSets rather than through the Agent CRD.
+This migration aligns with the Rossoctl UI migration documented in [rossoctl/docs/plans/migrate-agent-crd-to-workloads.md](https://github.com/rossoctl/rossoctl/blob/main/docs/plans/migrate-agent-crd-to-workloads.md), where agents are now deployed directly as Deployments/StatefulSets rather than through the Agent CRD.
 
 **Goals:**
 - Support agents deployed as Deployments and StatefulSets
@@ -40,7 +40,7 @@ The AgentCard system consists of two controllers:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        kagenti-operator                              │
+│                        rossoctl-operator                              │
 │                                                                      │
 │  ┌─────────────────────────┐    ┌─────────────────────────────┐    │
 │  │ AgentCardSyncReconciler │    │    AgentCardReconciler      │    │
@@ -79,20 +79,20 @@ The AgentCard system consists of two controllers:
 **AgentCardReconciler** depends on Agent CRD for:
 1. **Agent Discovery**: Uses `AgentCard.Spec.Selector.MatchLabels` to find Agent
 2. **Readiness Check**: Checks `Agent.Status.DeploymentStatus.Phase == PhaseReady`
-3. **Protocol Detection**: Reads `kagenti.io/agent-protocol` label from Agent
+3. **Protocol Detection**: Reads `rossoctl.io/agent-protocol` label from Agent
 4. **Service Discovery**: Uses Agent name to find corresponding Service
 
 **AgentCardSyncReconciler** depends on Agent CRD for:
 1. **Watch Source**: Watches Agent CRD events
-2. **Label Check**: Requires `kagenti.io/type=agent` and `kagenti.io/agent-protocol` labels
+2. **Label Check**: Requires `rossoctl.io/type=agent` and `rossoctl.io/agent-protocol` labels
 3. **Owner Reference**: Sets Agent as owner of AgentCard for garbage collection
 
 ### Current Label Requirements on Agent CRD
 
 | Label | Purpose |
 |-------|---------|
-| `kagenti.io/type=agent` | Identifies resource as an agent |
-| `kagenti.io/agent-protocol` | Protocol for fetching card (e.g., "a2a") |
+| `rossoctl.io/type=agent` | Identifies resource as an agent |
+| `rossoctl.io/agent-protocol` | Protocol for fetching card (e.g., "a2a") |
 | `app.kubernetes.io/name` | Used for service discovery and selector |
 
 ---
@@ -103,7 +103,7 @@ The AgentCard system consists of two controllers:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                          kagenti-operator                                │
+│                          rossoctl-operator                                │
 │                                                                          │
 │  ┌────────────────────────────┐    ┌─────────────────────────────┐      │
 │  │ AgentCardSyncReconciler    │    │    AgentCardReconciler      │      │
@@ -172,7 +172,7 @@ targetRef:
   name: my-agent
 
 targetRef:
-  apiVersion: agent.kagenti.dev/v1alpha1
+  apiVersion: agent.rossoctl.dev/v1alpha1
   kind: Agent  # Legacy
   name: my-agent
 ```
@@ -181,45 +181,45 @@ targetRef:
 
 ## 3. Label Standards
 
-As defined in the Kagenti UI migration plan, all agent workloads must have these labels:
+As defined in the Rossoctl UI migration plan, all agent workloads must have these labels:
 
 ### Required Labels (All Workloads)
 
 | Label | Value | Purpose |
 |-------|-------|---------|
-| `kagenti.io/type` | `agent` | Identifies resource as a Kagenti agent |
+| `rossoctl.io/type` | `agent` | Identifies resource as a Rossoctl agent |
 | `app.kubernetes.io/name` | `<agent-name>` | Standard K8s app name label |
-| `protocol.kagenti.io/<name>` | `""` (e.g., `protocol.kagenti.io/a2a`) | Protocol(s) the agent speaks |
+| `protocol.rossoctl.io/<name>` | `""` (e.g., `protocol.rossoctl.io/a2a`) | Protocol(s) the agent speaks |
 
 ### Recommended Labels
 
 | Label | Value | Purpose |
 |-------|-------|---------|
-| `app.kubernetes.io/managed-by` | `kagenti-ui` | Resource manager |
+| `app.kubernetes.io/managed-by` | `rossoctl-ui` | Resource manager |
 | `app.kubernetes.io/component` | `agent` | Component type |
-| `kagenti.io/framework` | `<framework>` | Framework (LangGraph, CrewAI, etc.) |
-| `kagenti.io/workload-type` | `deployment` or `statefulset` | Workload type |
+| `rossoctl.io/framework` | `<framework>` | Framework (LangGraph, CrewAI, etc.) |
+| `rossoctl.io/workload-type` | `deployment` or `statefulset` | Workload type |
 
 ### Label Selector for Agents
 
 To discover all agents in a namespace:
 
 ```
-kagenti.io/type=agent
+rossoctl.io/type=agent
 ```
 
 To discover agents with a specific protocol:
 
 ```
-kagenti.io/type=agent,protocol.kagenti.io/a2a
+rossoctl.io/type=agent,protocol.rossoctl.io/a2a
 ```
 
 ### Label Changes from Agent CRD
 
 | Old Label (Agent CRD) | New Label (Workloads) |
 |-----------------------|-----------------------|
-| `kagenti.io/agent-protocol: a2a` | `protocol.kagenti.io/a2a: ""` |
-| `kagenti.io/protocol: a2a` | `protocol.kagenti.io/a2a: ""` |
+| `rossoctl.io/agent-protocol: a2a` | `protocol.rossoctl.io/a2a: ""` |
+| `rossoctl.io/protocol: a2a` | `protocol.rossoctl.io/a2a: ""` |
 
 ---
 
@@ -308,7 +308,7 @@ type AgentCardSpec struct {
     SyncPeriod string `json:"syncPeriod,omitempty"`
 
     // TargetRef identifies the workload backing this agent using duck typing.
-    // The referenced workload must have the required Kagenti labels.
+    // The referenced workload must have the required Rossoctl labels.
     // +optional
     TargetRef *TargetRef `json:"targetRef,omitempty"`
 
@@ -342,7 +342,7 @@ type AgentCardStatus struct {
 **Example AgentCard with targetRef:**
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentCard
 metadata:
   name: my-agent-card
@@ -420,9 +420,9 @@ func (r *AgentCardReconciler) getWorkloadByTargetRef(
 
     labels := obj.GetLabels()
 
-    // Validate it's a Kagenti agent
+    // Validate it's a Rossoctl agent
     if !isAgentWorkload(labels) {
-        return nil, fmt.Errorf("%w: %s/%s does not have kagenti.io/type=agent label",
+        return nil, fmt.Errorf("%w: %s/%s does not have rossoctl.io/type=agent label",
             ErrNotAgentWorkload, targetRef.Kind, targetRef.Name)
     }
 
@@ -528,9 +528,9 @@ func (r *AgentCardReconciler) hasReadyCondition(obj *unstructured.Unstructured) 
     return false, nil
 }
 
-// isAgentWorkload checks if labels indicate this is a Kagenti agent
+// isAgentWorkload checks if labels indicate this is a Rossoctl agent
 func isAgentWorkload(labels map[string]string) bool {
-    return labels[LabelKagentiType] == ValueTypeAgent
+    return labels[LabelRossoctlType] == ValueTypeAgent
 }
 ```
 
@@ -572,14 +572,14 @@ func (r *AgentCardReconciler) findMatchingWorkloadBySelector(
 
 ```go
 // getWorkloadProtocol extracts the protocol from workload labels
-// Supports both old (kagenti.io/agent-protocol) and new (kagenti.io/protocol) labels
+// Supports both old (rossoctl.io/agent-protocol) and new (rossoctl.io/protocol) labels
 func getWorkloadProtocol(labels map[string]string) string {
     // Try new label first
-    if protocol := labels[LabelKagentiProtocol]; protocol != "" {
+    if protocol := labels[LabelRossoctlProtocol]; protocol != "" {
         return protocol
     }
     // Fall back to old label
-    return labels[LabelKagentiAgentProtocol]
+    return labels[LabelRossoctlAgentProtocol]
 }
 ```
 
@@ -638,7 +638,7 @@ func (r *AgentCardReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
     if protocol == "" {
         log.Info("Workload has no protocol label", "name", workload.Name)
         r.updateCondition(ctx, agentCard, ConditionSynced, metav1.ConditionFalse,
-            "NoProtocol", "Workload does not have kagenti.io/protocol label")
+            "NoProtocol", "Workload does not have rossoctl.io/protocol label")
         return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
     }
 
@@ -718,11 +718,11 @@ func (r *AgentCardReconciler) SetupWithManager(mgr ctrl.Manager) error {
     return builder.Complete(r)
 }
 
-// agentLabelPredicate filters for resources with kagenti.io/type=agent
+// agentLabelPredicate filters for resources with rossoctl.io/type=agent
 func agentLabelPredicate() predicate.Predicate {
     return predicate.NewPredicateFuncs(func(obj client.Object) bool {
         labels := obj.GetLabels()
-        return labels[LabelKagentiType] == ValueTypeAgent
+        return labels[LabelRossoctlType] == ValueTypeAgent
     })
 }
 
@@ -856,15 +856,15 @@ func (r *AgentCardSyncReconciler) ReconcileAgent(ctx context.Context, req ctrl.R
 
 // shouldSyncWorkload checks if a workload should have an AgentCard created
 func (r *AgentCardSyncReconciler) shouldSyncWorkload(labels map[string]string) bool {
-    // Must have kagenti.io/type=agent
-    if labels[LabelKagentiType] != ValueTypeAgent {
+    // Must have rossoctl.io/type=agent
+    if labels[LabelRossoctlType] != ValueTypeAgent {
         return false
     }
 
     // Must have protocol label (new or old format)
-    protocol := labels[LabelKagentiProtocol]
+    protocol := labels[LabelRossoctlProtocol]
     if protocol == "" {
-        protocol = labels[LabelKagentiAgentProtocol]
+        protocol = labels[LabelRossoctlAgentProtocol]
     }
 
     return protocol != ""
@@ -942,7 +942,7 @@ func (r *AgentCardSyncReconciler) createAgentCard(
             Namespace: obj.GetNamespace(),
             Labels: map[string]string{
                 LabelAppName:   appName,
-                LabelManagedBy: "kagenti-operator",
+                LabelManagedBy: "rossoctl-operator",
             },
             OwnerReferences: []metav1.OwnerReference{
                 *metav1.NewControllerRef(obj, gvk),
@@ -1046,16 +1046,16 @@ import "errors"
 
 const (
     // Label keys
-    LabelKagentiType          = "kagenti.io/type"
-    LabelKagentiProtocol      = "kagenti.io/protocol"
-    LabelKagentiAgentProtocol = "kagenti.io/agent-protocol"  // Legacy
-    LabelKagentiWorkloadType  = "kagenti.io/workload-type"
+    LabelRossoctlType          = "rossoctl.io/type"
+    LabelRossoctlProtocol      = "rossoctl.io/protocol"
+    LabelRossoctlAgentProtocol = "rossoctl.io/agent-protocol"  // Legacy
+    LabelRossoctlWorkloadType  = "rossoctl.io/workload-type"
     LabelAppName              = "app.kubernetes.io/name"
     LabelManagedBy            = "app.kubernetes.io/managed-by"
 
     // Label values
     ValueTypeAgent         = "agent"
-    ValueManagedByOperator = "kagenti-operator"
+    ValueManagedByOperator = "rossoctl-operator"
 )
 
 var (
@@ -1063,7 +1063,7 @@ var (
     ErrWorkloadNotFound = errors.New("workload not found")
 
     // ErrNotAgentWorkload indicates the workload doesn't have required agent labels
-    ErrNotAgentWorkload = errors.New("resource is not a Kagenti agent")
+    ErrNotAgentWorkload = errors.New("resource is not a Rossoctl agent")
 )
 ```
 
@@ -1120,21 +1120,21 @@ Add permissions for Deployments and StatefulSets:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kagenti-operator-manager-role
+  name: rossoctl-operator-manager-role
 rules:
   # Existing AgentCard permissions
-  - apiGroups: ["agent.kagenti.dev"]
+  - apiGroups: ["agent.rossoctl.dev"]
     resources: ["agentcards"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["agent.kagenti.dev"]
+  - apiGroups: ["agent.rossoctl.dev"]
     resources: ["agentcards/status"]
     verbs: ["get", "update", "patch"]
-  - apiGroups: ["agent.kagenti.dev"]
+  - apiGroups: ["agent.rossoctl.dev"]
     resources: ["agentcards/finalizers"]
     verbs: ["update"]
 
   # Legacy Agent CRD permissions (can be removed after migration)
-  - apiGroups: ["agent.kagenti.dev"]
+  - apiGroups: ["agent.rossoctl.dev"]
     resources: ["agents"]
     verbs: ["get", "list", "watch"]
 
@@ -1261,8 +1261,8 @@ This is controlled by the `--enable-legacy-agent-crd` flag (default: `true`).
 ### 8.2 Label Compatibility
 
 The controller supports both label formats:
-- New: `kagenti.io/protocol`
-- Old: `kagenti.io/agent-protocol`
+- New: `rossoctl.io/protocol`
+- Old: `rossoctl.io/agent-protocol`
 
 ### 8.3 AgentCard Spec Compatibility
 
@@ -1292,7 +1292,7 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: my-agent
-      kagenti.io/type: agent
+      rossoctl.io/type: agent
 ```
 
 After (migrated):
@@ -1305,7 +1305,7 @@ spec:
   selector:  # Preserved for reference, but not used
     matchLabels:
       app.kubernetes.io/name: my-agent
-      kagenti.io/type: agent
+      rossoctl.io/type: agent
 ```
 
 ### 8.4 Migration Path
@@ -1313,7 +1313,7 @@ spec:
 1. **Phase 1:** Deploy updated operator (hybrid mode)
 2. **Phase 2:** Create new agents as Deployments/StatefulSets (AgentCards created with `targetRef`)
 3. **Phase 3:** Existing AgentCards with `selector` are automatically migrated to use `targetRef`
-4. **Phase 4:** Migrate existing Agent CRDs using kagenti migration tool
+4. **Phase 4:** Migrate existing Agent CRDs using rossoctl migration tool
 5. **Phase 5:** Set `--enable-legacy-agent-crd=false`
 6. **Phase 6:** Remove Agent CRD from cluster
 
@@ -1374,7 +1374,7 @@ To revert to the previous version:
 
 ## References
 
-- [Kagenti UI Migration Plan](https://github.com/kagenti/kagenti/blob/main/docs/plans/migrate-agent-crd-to-workloads.md)
+- [Rossoctl UI Migration Plan](https://github.com/rossoctl/rossoctl/blob/main/docs/plans/migrate-agent-crd-to-workloads.md)
 - [Kubernetes Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
 - [Kubernetes StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
 - [Controller Runtime Watches](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/builder)

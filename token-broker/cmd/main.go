@@ -30,12 +30,12 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/kagenti/kagenti-extensions/authbridge/authlib/plugins/jwtvalidation/validation"
-	"github.com/kagenti/token-broker/internal/api"
-	"github.com/kagenti/token-broker/internal/cache"
-	"github.com/kagenti/token-broker/internal/core"
-	"github.com/kagenti/token-broker/internal/oauth"
-	"github.com/kagenti/token-broker/internal/session"
+	"github.com/rossoctl/rossocortex/authbridge/authlib/plugins/jwtvalidation/validation"
+	"github.com/rossoctl/token-broker/internal/api"
+	"github.com/rossoctl/token-broker/internal/cache"
+	"github.com/rossoctl/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/oauth"
+	"github.com/rossoctl/token-broker/internal/session"
 )
 
 // Config holds the Token Broker configuration.

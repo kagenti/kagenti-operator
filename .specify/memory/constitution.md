@@ -18,7 +18,7 @@ Sync Impact Report
 - Follow-up TODOs: none
 -->
 
-# Kagenti Operator Constitution
+# Rossoctl Operator Constitution
 
 ## Core Principles
 
@@ -126,7 +126,7 @@ and developers MUST consult this section when reviewing reconciler code.
 
 ## Governance
 
-This constitution governs all development on the kagenti-operator. It
+This constitution governs all development on the rossoctl-operator. It
 supersedes informal conventions and ad-hoc patterns.
 
 **Amendment process**: Propose changes via PR. Changes to principles

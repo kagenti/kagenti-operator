@@ -69,16 +69,16 @@ A platform engineer deploys an agent with a multi-port Service (e.g., an admin H
 **Acceptance Scenarios**:
 
 1. **Given** a Service with a port named `a2a`, **When** the controller resolves the card endpoint, **Then** it uses the `a2a` port.
-2. **Given** a Service with a `kagenti.io/port` annotation set to `9090`, **When** the controller resolves the card endpoint, **Then** it uses port 9090 regardless of port names.
+2. **Given** a Service with a `rossoctl.io/port` annotation set to `9090`, **When** the controller resolves the card endpoint, **Then** it uses port 9090 regardless of port names.
 3. **Given** a Service with no `a2a` port and no annotation, **When** the controller resolves the card endpoint, **Then** it falls back to the port named `http`, then to the first port.
-4. **Given** a Service with the `kagenti.io/port` annotation and a port named `a2a`, **When** the controller resolves the card endpoint, **Then** the annotation takes priority over the port name.
+4. **Given** a Service with the `rossoctl.io/port` annotation and a port named `a2a`, **When** the controller resolves the card endpoint, **Then** the annotation takes priority over the port name.
 
 ---
 
 ### Edge Cases
 
 - What happens when `transportSecurity` is `"http"` and a policy engine requires mTLS? The field provides the signal; enforcement is out of scope for this feature (deferred to identity binding migration).
-- What happens when a Service has the `kagenti.io/port` annotation with an invalid value (non-numeric, port 0)? The controller falls back to port name resolution and logs a warning.
+- What happens when a Service has the `rossoctl.io/port` annotation with an invalid value (non-numeric, port 0)? The controller falls back to port name resolution and logs a warning.
 - What happens when the `cardHash` changes but the card payload fields are semantically identical (e.g., JSON key ordering difference)? The hash is computed from the serialized JSON, so ordering differences produce different hashes. This is intentional: any byte-level change triggers a re-fetch timestamp update.
 - What happens when a workload is intentionally scaled to zero (KEDA, Knative, manual `replicas: 0`)? The current generation-based change detection treats a replica count change as a workload mutation, triggering a re-fetch attempt that fails with `WorkloadNotReady` even though the card data (baked into the image) is still valid. The condition self-heals when pods return, but the flapping is noisy for operators. Existing card data is always retained (FR-013). A follow-up improvement should switch change detection from `metadata.generation` (increments on any spec change including replicas) to the Kubernetes pod template hash (only changes when `spec.template` changes: image, env, volumes). Replicas are not part of `spec.template`, so scale events would be correctly ignored.
 
@@ -97,7 +97,7 @@ A platform engineer deploys an agent with a multi-port Service (e.g., an admin H
 - **FR-003**: The `CardFetched` condition MUST use these reasons: `Fetched` (mTLS success), `FetchedInsecure` (plain HTTP success), `FetchSkipped` (pod template unchanged), `FetchFailed` (fetch error), `ServiceNotFound` (no matching Service), `WorkloadNotReady` (no Ready pods), `DiscoveryDisabled` (feature flag off).
 - **FR-004**: The system MUST rename the `cardId` field to `cardHash` in `CardStatus`.
 - **FR-005**: The system MUST rename the `fetchedAt` field to `lastCardFetchTime` in `CardStatus`.
-- **FR-006**: The system MUST resolve the A2A card endpoint port using this chain: `kagenti.io/port` annotation on the Service (highest priority), then port named `a2a`, then port named `http`, then first port.
+- **FR-006**: The system MUST resolve the A2A card endpoint port using this chain: `rossoctl.io/port` annotation on the Service (highest priority), then port named `a2a`, then port named `http`, then first port.
 - **FR-007**: The system MUST check workload readiness before attempting service resolution. For Deployments and StatefulSets, check `readyReplicas > 0`. For Sandboxes (unstructured), skip the readiness check and proceed directly to service resolution. If the readiness check fails, set `CardFetched=False` with reason `WorkloadNotReady`.
 - **FR-008**: The `CardFetched` printer column MUST replace the existing `CardSynced` printer column in the CRD.
 - **FR-009**: The project constitution MUST be updated to reflect the new condition type and field names.
@@ -121,6 +121,6 @@ A platform engineer deploys an agent with a multi-port Service (e.g., an admin H
 
 - The PR #372 merged recently enough that no external consumers depend on the current field names or condition type. Breaking changes are acceptable.
 - The `transportSecurity` values `"mtls"` and `"http"` are sufficient for v1alpha1. New values (e.g., `"ztunnel"`) can be added via normal CRD schema evolution. The field uses a typed Go enum (`TransportSecurity`) with kubebuilder validation to prevent silent divergence in consumer comparisons.
-- The `kagenti.io/port` annotation is a new API surface. No existing workloads use it, so there is no migration concern.
+- The `rossoctl.io/port` annotation is a new API surface. No existing workloads use it, so there is no migration concern.
 - The ConfigMap fetch path (init-container signing) is being deprecated. It is not represented in the `transportSecurity` enum; a value can be added if needed during the coexistence period.
 - Workload readiness can be determined by checking for pods matching the workload's selector with a Ready condition. This reuses existing pod listing logic.

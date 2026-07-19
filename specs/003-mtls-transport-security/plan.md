@@ -6,7 +6,7 @@
 
 ## Summary
 
-Enable mTLS as the default transport security for controller-to-agent and agent-to-agent communication. Authbridge mTLS is already implemented in kagenti-extensions across all proxy modes (envoy, proxy-sidecar, lite). The remaining work is operator-side: the controller sets a `kagenti.io/mtls-mode` annotation on the pod template (triggering rolling restart on change), the webhook reads `mTLSMode` from the AgentRuntime CR and sets `MTLS_MODE` env var on the authbridge container, defaulting `mTLSMode` to `permissive`, wiring `SpiffeFetcher` as the default card fetcher, adding `MTLSReady` status conditions, and deprecating the JWS signing pipeline flags. SPIRE is the sole certificate provider; Istio is out of scope.
+Enable mTLS as the default transport security for controller-to-agent and agent-to-agent communication. Authbridge mTLS is already implemented in rossocortex across all proxy modes (envoy, proxy-sidecar, lite). The remaining work is operator-side: the controller sets a `rossoctl.io/mtls-mode` annotation on the pod template (triggering rolling restart on change), the webhook reads `mTLSMode` from the AgentRuntime CR and sets `MTLS_MODE` env var on the authbridge container, defaulting `mTLSMode` to `permissive`, wiring `SpiffeFetcher` as the default card fetcher, adding `MTLSReady` status conditions, and deprecating the JWS signing pipeline flags. SPIRE is the sole certificate provider; Istio is out of scope.
 
 ## Technical Context
 
@@ -57,15 +57,15 @@ specs/003-mtls-transport-security/
 └── tasks.md             # Phase 2 output (/speckit-tasks)
 ```
 
-### Source Code (kagenti-operator)
+### Source Code (rossoctl-operator)
 
 ```text
-kagenti-operator/
+operator/
 ├── api/v1alpha1/
 │   ├── agentruntime_types.go       # MODIFY: mTLSMode default, MTLSReady condition type
 │   └── zz_generated.deepcopy.go    # REGENERATE: after type changes
 ├── internal/controller/
-│   ├── agentruntime_controller.go      # MODIFY: set kagenti.io/mtls-mode annotation, MTLSReady condition, SpiffeFetcher default
+│   ├── agentruntime_controller.go      # MODIFY: set rossoctl.io/mtls-mode annotation, MTLSReady condition, SpiffeFetcher default
 │   ├── agentruntime_controller_test.go # MODIFY: tests for mTLS annotation, conditions, defaults
 ├── internal/webhook/injector/
 │   └── pod_mutator.go                  # MODIFY: read mTLSMode from AgentRuntime CR, set MTLS_MODE env var on authbridge
@@ -79,10 +79,10 @@ kagenti-operator/
     └── integration/                # MODIFY: mTLS integration test
 ```
 
-### Source Code (kagenti-extensions — verification only)
+### Source Code (rossocortex — verification only)
 
 ```text
-kagenti-extensions/authbridge/
+rossocortex/authbridge/
 ├── cmd/
 │   ├── authbridge-envoy/main.go    # VERIFY: mTLS wiring exists
 │   ├── authbridge-proxy/main.go    # VERIFIED: mTLS wiring complete

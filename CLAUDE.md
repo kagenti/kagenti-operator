@@ -1,4 +1,4 @@
-# CLAUDE.md - Kagenti Operator
+# CLAUDE.md - Rossoctl Operator
 
 This file provides guidance for AI assistants working with this repository.
 

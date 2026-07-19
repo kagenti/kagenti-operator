@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagenti/token-broker/internal/cache"
-	"github.com/kagenti/token-broker/internal/core"
-	"github.com/kagenti/token-broker/internal/oauth"
-	"github.com/kagenti/token-broker/internal/session"
+	"github.com/rossoctl/token-broker/internal/cache"
+	"github.com/rossoctl/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/oauth"
+	"github.com/rossoctl/token-broker/internal/session"
 )
 
 // TestAcquireToken_UnblocksOnSessionEnd verifies that ending a session while a
