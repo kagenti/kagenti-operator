@@ -25,7 +25,7 @@ Note: 3 remaining Important findings are pre-existing architectural patterns (re
 ### FINDING-1
 - **Severity:** Important
 - **Confidence:** 85
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:905-910
+- **File:** operator/internal/controller/agentruntime_controller.go:905-910
 - **Category:** correctness
 - **Source:** correctness-agent
 - **Round found:** 1
@@ -43,7 +43,7 @@ Added nil check after the plain HTTP fetch, matching the pattern already used in
 ### FINDING-2
 - **Severity:** Important
 - **Confidence:** 90
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:594-595
+- **File:** operator/internal/controller/agentruntime_controller.go:594-595
 - **Category:** production-readiness
 - **Source:** production-agent (also reported by: correctness-agent, architecture-agent)
 - **Round found:** 1
@@ -61,7 +61,7 @@ Changed function signature to accept `ctx context.Context` and updated all call 
 ### FINDING-3
 - **Severity:** Important
 - **Confidence:** 95
-- **File:** kagenti-operator/internal/controller/agentruntime_controller_test.go (missing test)
+- **File:** operator/internal/controller/agentruntime_controller_test.go (missing test)
 - **Category:** test-quality
 - **Source:** test-agent
 - **Round found:** 1
@@ -79,7 +79,7 @@ Added test that performs a successful fetch, then calls `fetchAndUpdateCard` aga
 ### FINDING-4
 - **Severity:** Important
 - **Confidence:** 95
-- **File:** kagenti-operator/internal/controller/agentruntime_controller_test.go (missing test)
+- **File:** operator/internal/controller/agentruntime_controller_test.go (missing test)
 - **Category:** test-quality
 - **Source:** test-agent
 - **Round found:** 1
@@ -97,7 +97,7 @@ Added test with a ready Deployment + Service and a stub fetcher that returns an 
 ### FINDING-5 (pre-existing, not fixed)
 - **Severity:** Important
 - **Confidence:** 85
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:753-840
+- **File:** operator/internal/controller/agentruntime_controller.go:753-840
 - **Category:** production-readiness
 - **Source:** production-agent
 - **Round found:** 1
@@ -114,7 +114,7 @@ Unnecessary API server load in steady state.
 ### FINDING-6 (pre-existing, not fixed)
 - **Severity:** Important
 - **Confidence:** 80
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:849-866
+- **File:** operator/internal/controller/agentruntime_controller.go:849-866
 - **Category:** production-readiness
 - **Source:** production-agent
 - **Round found:** 1
@@ -128,7 +128,7 @@ Unnecessary API server load in steady state.
 ### FINDING-7 (pre-existing, not fixed)
 - **Severity:** Important
 - **Confidence:** 85
-- **File:** kagenti-operator/internal/controller/agentruntime_controller.go:213
+- **File:** operator/internal/controller/agentruntime_controller.go:213
 - **Category:** production-readiness
 - **Source:** production-agent
 - **Round found:** 1

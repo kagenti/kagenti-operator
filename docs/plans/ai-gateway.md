@@ -6,9 +6,9 @@ Proposal
 
 ## Summary
 
-Add AI Gateway capabilities to the Kagenti operator using the Gateway API
+Add AI Gateway capabilities to the Rossoctl operator using the Gateway API
 policy attachment pattern. Users create a standard `Gateway` resource
-(managed by Envoy Gateway), then attach Kagenti policy CRDs to control
+(managed by Envoy Gateway), then attach Rossoctl policy CRDs to control
 LLM routing and access control. Each policy generates the downstream
 Envoy AI Gateway resources needed to implement the declared intent.
 
@@ -120,21 +120,21 @@ Two controllers watch the same Gateway for different concerns:
 
 - **Envoy Gateway** — reconciles the Gateway, deploys the Envoy proxy,
   processes BackendTrafficPolicy and ClientTrafficPolicy
-- **Kagenti operator** — reconciles the two AI policy CRDs and generates
+- **Rossoctl operator** — reconciles the two AI policy CRDs and generates
   downstream resources
 
 No conflict: our controller never modifies the Gateway. It creates
-sibling resources that reference it. The two Kagenti policy controllers
+sibling resources that reference it. The two Rossoctl policy controllers
 are independent — they generate disjoint sets of resources and never
 write to each other's objects.
 
 ## API group
 
 ```
-aigateway.kagenti.dev/v1alpha1
+aigateway.rossoctl.dev/v1alpha1
 ```
 
-Separate from the operator's agent CRDs (`agent.kagenti.dev`) and from
+Separate from the operator's agent CRDs (`agent.rossoctl.dev`) and from
 Envoy AI Gateway's CRDs (`aigateway.envoyproxy.io`).
 
 ## CRDs
@@ -176,7 +176,7 @@ A single controller owns all generated resources, eliminating
 cross-controller write conflicts.
 
 ```yaml
-apiVersion: aigateway.kagenti.dev/v1alpha1
+apiVersion: aigateway.rossoctl.dev/v1alpha1
 kind: AIRoutingPolicy
 metadata:
   name: my-routing
@@ -378,7 +378,7 @@ could match on XFCC to apply per-workload rate limits, model access
 lists, or processing pipelines.
 
 ```yaml
-apiVersion: aigateway.kagenti.dev/v1alpha1
+apiVersion: aigateway.rossoctl.dev/v1alpha1
 kind: AIAccessPolicy
 metadata:
   name: my-access
@@ -673,7 +673,7 @@ spec:
     protocol: HTTPS
 ---
 # Platform admin sets access policy
-apiVersion: aigateway.kagenti.dev/v1alpha1
+apiVersion: aigateway.rossoctl.dev/v1alpha1
 kind: AIAccessPolicy
 metadata:
   name: ai-gateway-access
@@ -690,7 +690,7 @@ spec:
       namespace: spire-system
 ---
 # Team lead configures providers and models
-apiVersion: aigateway.kagenti.dev/v1alpha1
+apiVersion: aigateway.rossoctl.dev/v1alpha1
 kind: AIRoutingPolicy
 metadata:
   name: ai-gateway-routing
@@ -847,7 +847,7 @@ The operator service account needs:
 
 | API group | Resources | Verbs |
 |-----------|-----------|-------|
-| aigateway.kagenti.dev | airoutingpolicies, aiaccesspolicies + /status + /finalizers | all |
+| aigateway.rossoctl.dev | airoutingpolicies, aiaccesspolicies + /status + /finalizers | all |
 | gateway.networking.k8s.io | gateways | get, list, watch |
 | gateway.envoyproxy.io | backends, clienttrafficpolicies, backendtrafficpolicies | all |
 | aigateway.envoyproxy.io | aiservicebackends, aigatewayroutes, backendsecuritypolicies | all |

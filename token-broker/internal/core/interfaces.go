@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	pkgauth "github.com/kagenti/token-broker/pkg/oauth"
+	pkgauth "github.com/rossoctl/token-broker/pkg/oauth"
 )
 
 // SessionStore manages OAuth sessions and their lifecycle.

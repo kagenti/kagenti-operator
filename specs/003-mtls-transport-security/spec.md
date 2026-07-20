@@ -11,7 +11,7 @@
 
 ## Scope
 
-Enable mutual TLS (mTLS) as the default transport security layer for two communication paths in the Kagenti platform:
+Enable mutual TLS (mTLS) as the default transport security layer for two communication paths in the Rossoctl platform:
 
 1. **Controller-to-agent** — the operator controller fetching agent cards and verifying agent identity over mTLS
 2. **Agent-to-agent** — inter-agent calls where both sides prove identity via SPIRE-issued X.509 certificates
@@ -26,7 +26,7 @@ All status updates (transport security, attested SPIFFE ID, mTLS readiness condi
 - AgentCard CRD removal — separate migration spec
 - Cross-cluster agent federation — future work
 - Bearer token / OAuth2 authorization — handled by authbridge, orthogonal to mTLS
-- Downstreaming logistics for kagenti-extensions — separate spike
+- Downstreaming logistics for rossocortex — separate spike
 - Webhook injector changes — existing spiffe-helper injection is sufficient
 
 ## Clarifications
@@ -42,7 +42,7 @@ All status updates (transport security, attested SPIFFE ID, mTLS readiness condi
 
 ## Current State — What Already Exists
 
-### Authbridge (kagenti-extensions) — DONE
+### Authbridge (rossocortex) — DONE
 
 mTLS is fully implemented in authbridge across all three proxy modes on main:
 
@@ -57,7 +57,7 @@ mTLS is fully implemented in authbridge across all three proxy modes on main:
 - Per-handshake certificate rotation from spiffe-helper files
 - `authtls.Metrics` for TLS handshake observability
 
-### Operator (kagenti-operator) — Partially Done
+### Operator (rossoctl-operator) — Partially Done
 
 - `MTLSMode` field on `AgentRuntimeSpec`: enum with values `disabled`, `permissive`, `strict` (defaults to `disabled`)
 - `CardStatus` struct on `AgentRuntimeStatus`: includes `TransportSecurity`, `AttestedAgentSpiffeID`, `ValidSignature`
@@ -173,14 +173,14 @@ The controller detects SPIRE availability by checking for the spiffe-helper init
 ### Functional Requirements
 
 - **FR-001**: The system MUST default `mTLSMode` to `permissive` when not explicitly set on an AgentRuntime CR.
-- **FR-002**: The controller MUST set a `kagenti.io/mtls-mode` annotation on the workload's pod template with the resolved `mTLSMode` value (`permissive`, `strict`, or `disabled`). The webhook reads this annotation (and/or the AgentRuntime CR directly) at pod CREATE time to configure the authbridge sidecar.
+- **FR-002**: The controller MUST set a `rossoctl.io/mtls-mode` annotation on the workload's pod template with the resolved `mTLSMode` value (`permissive`, `strict`, or `disabled`). The webhook reads this annotation (and/or the AgentRuntime CR directly) at pod CREATE time to configure the authbridge sidecar.
 - **FR-003**: The webhook MUST set the `MTLS_MODE` environment variable on the authbridge sidecar container based on the AgentRuntime's `mTLSMode` value. Authbridge reads this env var at startup to configure its TLS listeners.
 - **FR-004**: The system MUST set an `MTLSReady` condition on AgentRuntime status indicating whether mTLS infrastructure (SPIRE) is available.
 - **FR-005**: The system MUST use `SpiffeFetcher` (mTLS) as the default card fetcher when the controller has access to the SPIRE Workload API socket.
 - **FR-006**: The system MUST fall back to `DefaultFetcher` (plain HTTP) when SPIRE is not configured on the controller pod.
 - **FR-007**: The system MUST record `status.card.transportSecurity` as `mtls` or `http` on AgentRuntime to indicate which transport was used for the card fetch.
 - **FR-008**: The system MUST record `status.card.attestedAgentSpiffeID` on AgentRuntime with the SPIFFE ID extracted from the peer certificate when the card is fetched over mTLS.
-- **FR-009**: The system MUST trigger a rolling restart of the workload when `mTLSMode` changes. The controller sets a `kagenti.io/mtls-mode` annotation on the pod template; when this annotation value changes, Kubernetes triggers a rolling restart. This is independent of the platform config hash.
+- **FR-009**: The system MUST trigger a rolling restart of the workload when `mTLSMode` changes. The controller sets a `rossoctl.io/mtls-mode` annotation on the pod template; when this annotation value changes, Kubernetes triggers a rolling restart. This is independent of the platform config hash.
 - **FR-010**: The system MUST log deprecation warnings at operator startup when legacy JWS signing flags (`--require-a2a-signature`, `--signature-audit-mode`, `--enforce-network-policies`) are set to `true`.
 - **FR-011**: The system MUST default legacy JWS signing flags to `false`.
 - **FR-012**: The system MUST change the `--enable-verified-fetch` flag default to `true` (kill switch retained for one release cycle).
@@ -206,25 +206,25 @@ The controller detects SPIRE availability by checking for the spiffe-helper init
 ## Assumptions
 
 - SPIRE is deployed in the cluster and the SPIRE agent socket is accessible to both the controller pod and agent workload pods.
-- The authbridge mTLS implementation in kagenti-extensions (on main) is stable and tested.
+- The authbridge mTLS implementation in rossocortex (on main) is stable and tested.
 - Each agent workload has exactly one Pod (one-agent-per-pod model), so pod identity equals agent identity (SPIFFE ID).
 - The spiffe-helper sidecar is already injected by the webhook when `mTLSMode` is non-disabled — no changes to injection logic are needed.
 - The authbridge sidecar supports an `MTLS_MODE` environment variable to configure TLS listener mode at startup.
 
 ## Repositories Affected
 
-### kagenti-operator (primary)
+### rossoctl-operator (primary)
 
 | File | Change |
 |------|--------|
 | `api/v1alpha1/agentruntime_types.go` | Change `mTLSMode` default to `permissive`; add `MTLSReady` condition type |
-| `internal/controller/agentruntime_controller.go` | Set `kagenti.io/mtls-mode` annotation on pod template; set `MTLSReady` condition; use SpiffeFetcher by default |
+| `internal/controller/agentruntime_controller.go` | Set `rossoctl.io/mtls-mode` annotation on pod template; set `MTLSReady` condition; use SpiffeFetcher by default |
 | `internal/controller/agentruntime_controller_test.go` | Tests for mTLS annotation, default mTLS, MTLSReady condition |
 | `internal/webhook/injector/pod_mutator.go` | Read `mTLSMode` from AgentRuntime CR; set `MTLS_MODE` env var on authbridge container |
 | `cmd/main.go` | Default `--enable-verified-fetch` to `true`; default signing flags to `false`; add deprecation log warnings |
 | `config/crd/bases/` | Regenerate CRD manifests if type changes |
 
-### kagenti-extensions (verification + testing)
+### rossocortex (verification + testing)
 
 | File | Change |
 |------|--------|

@@ -57,7 +57,7 @@ jobs:
             --commit_sha "${{ github.sha }}" \
             --provenance \
             --identity_token "$(cat oidc-token.txt)" \
-            kagenti-operator/examples/ci-agent-card.json
+            operator/examples/ci-agent-card.json
 
       - name: Verify signature
         run: |

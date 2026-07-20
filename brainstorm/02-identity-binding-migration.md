@@ -47,7 +47,7 @@ This field serves a different purpose today (configuring the workload's own SVID
 Move `identityBinding` to AgentRuntime.spec, alongside the existing identity fields:
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentRuntime
 spec:
   identity:
@@ -82,7 +82,7 @@ After Phase 2, the AgentRuntime controller evaluates binding from its own spec f
 
 ### AgentCardSyncReconciler
 
-The sync controller auto-creates AgentCards for workloads with `kagenti.io/type=agent` labels. During coexistence, it continues to function. After Phase 2, the sync controller is no longer needed because:
+The sync controller auto-creates AgentCards for workloads with `rossoctl.io/type=agent` labels. During coexistence, it continues to function. After Phase 2, the sync controller is no longer needed because:
 - Card discovery is handled by AgentRuntime controller (Phase 1)
 - Identity binding is on AgentRuntime spec (Phase 2)
 - There is no remaining reason to auto-create AgentCards

@@ -43,7 +43,7 @@ specs/001-agentcard-into-status/
 ### Source Code (repository root)
 
 ```text
-kagenti-operator/
+operator/
 ├── api/v1alpha1/
 │   ├── agentruntime_types.go       # MODIFY: add CardStatus to AgentRuntimeStatus
 │   ├── agentcard_types.go          # READ-ONLY: reuse AgentCardData struct

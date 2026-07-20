@@ -18,9 +18,9 @@ This brainstorm covers the first step: moving card data into AgentRuntime status
 ## Context
 
 - ADR: ODH-ADR-AgentOps-0002 (Agent Network Policy and mTLS Identity)
-- Upstream issue: kagenti-operator#371 (Consolidate AgentCard into AgentRuntime status)
-- Related: kagenti-operator#292 (skeleton-card problem)
-- Related: kagenti-operator#284 (mTLS verified fetch, merged 2026-05-20, infrastructure reusable later)
+- Upstream issue: rossoctl-operator#371 (Consolidate AgentCard into AgentRuntime status)
+- Related: rossoctl-operator#292 (skeleton-card problem)
+- Related: rossoctl-operator#284 (mTLS verified fetch, merged 2026-05-20, infrastructure reusable later)
 - Upstream sync: IBM maintainers agreed to AgentCard deprecation path (2026-05-15)
 - RHAISTRAT-1599 AC review: acceptance criteria updated to reflect AgentRuntime-based discovery
 

@@ -18,7 +18,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  REPO: kagenti/kagenti-operator
+  REPO: rossoctl/operator
   CHARTS_PATH: ./charts
 
 jobs:
@@ -31,12 +31,12 @@ jobs:
       fail-fast: false
       matrix:
         image_config:
-          - name: kagenti-operator
-            context: ./kagenti-operator
-            dockerfile: ./kagenti-operator/Dockerfile
+          - name: rossoctl-operator
+            context: ./operator
+            dockerfile: ./operator/Dockerfile
           - name: agentcard-signer
-            context: ./kagenti-operator
-            dockerfile: ./kagenti-operator/cmd/agentcard-signer/Dockerfile
+            context: ./operator
+            dockerfile: ./operator/cmd/agentcard-signer/Dockerfile
     steps:
     - name: Checkout
       uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -106,8 +106,8 @@ jobs:
     - name: Package and push Helm chart
       run: |
         chartVersion=$(echo "${{ github.ref_name }}" | cut -c 2-)
-        chartPackageName="kagenti-operator-chart-${chartVersion}.tgz"
-        cd ${{ env.CHARTS_PATH }}/kagenti-operator
+        chartPackageName="operator-chart-${chartVersion}.tgz"
+        cd ${{ env.CHARTS_PATH }}/operator
         yq -i '.controllerManager.container.image.tag = strenv(chartVersion)' values.yaml
         yq -i '.controllerManager.container.image.pullPolicy = "IfNotPresent"' values.yaml
         helm package . --destination . --version "${chartVersion}" --app-version "${chartVersion}"
@@ -153,12 +153,12 @@ jobs:
       # we override to `:latest` (which the build-and-push job just
       # tagged) so the rendered Deployment can actually pull an image.
       run: |
-        helm install kagenti-operator ./charts/kagenti-operator \
+        helm install rossoctl-operator ./charts/operator \
           --set controllerManager.container.image.tag=latest
 
     - name: Wait for deployment rollout
       run: |
-        kubectl rollout status deployment/kagenti-controller-manager \
+        kubectl rollout status deployment/rossoctl-controller-manager \
           --timeout=120s
 
     - name: Verify operator pod is Running and Ready

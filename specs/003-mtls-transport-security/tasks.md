@@ -18,7 +18,7 @@
 
 ## File Paths
 
-All paths are relative to `kagenti-operator/` (the Go module root inside the repo):
+All paths are relative to `operator/` (the Go module root inside the repo):
 
 - `api/v1alpha1/agentruntime_types.go` — CRD types
 - `internal/controller/agentruntime_controller.go` — main reconciler (has `fetchCard()`, conditions, etc.)
@@ -61,7 +61,7 @@ The following are already implemented and do NOT need new code:
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 [SUPERSEDED → REPLACED] Add `kagenti.io/mtls-mode` annotation to the workload's pod template in `internal/controller/agentruntime_controller.go`. In `applyWorkloadConfig()`, set the annotation value to the resolved `mTLSMode` (`permissive`, `strict`, or `disabled`). When `mTLSMode` changes on the AgentRuntime CR, the annotation value changes, causing Kubernetes to trigger a rolling restart. This replaces the previous ConfigMap-based approach — the webhook reads `mTLSMode` from the AgentRuntime CR at pod CREATE time and sets `MTLS_MODE` env var on the authbridge container. Update the webhook in `internal/webhook/injector/pod_mutator.go` to set this env var.
+- [ ] T005 [SUPERSEDED → REPLACED] Add `rossoctl.io/mtls-mode` annotation to the workload's pod template in `internal/controller/agentruntime_controller.go`. In `applyWorkloadConfig()`, set the annotation value to the resolved `mTLSMode` (`permissive`, `strict`, or `disabled`). When `mTLSMode` changes on the AgentRuntime CR, the annotation value changes, causing Kubernetes to trigger a rolling restart. This replaces the previous ConfigMap-based approach — the webhook reads `mTLSMode` from the AgentRuntime CR at pod CREATE time and sets `MTLS_MODE` env var on the authbridge container. Update the webhook in `internal/webhook/injector/pod_mutator.go` to set this env var.
 - [ ] T006 Add `MTLSReady` condition logic to the reconcile loop in `internal/controller/agentruntime_controller.go`. Insert after target resolution (around line 170) and before the Ready condition (line 251). Logic: if `mTLSMode` resolves to `disabled` or empty-before-default → `MTLSReady=True/MTLSDisabled`; if `permissive` or `strict` → check whether the workload's pod template has spiffe-helper volume mounts or the SPIRE agent socket mount → if present `MTLSReady=True/SPIREAvailable`, if absent `MTLSReady=False/SPIREUnavailable` with message `"mTLS requires SPIRE; either deploy SPIRE or set mTLSMode: disabled"`. Use `r.setCondition()` (existing helper). Follow save/restore pattern around Patch calls (Constitution I).
 
 **Checkpoint**: MTLSReady condition and mTLS annotation ready.
@@ -72,18 +72,18 @@ The following are already implemented and do NOT need new code:
 
 **Goal**: Agents deployed with SPIRE communicate over mTLS automatically without explicit mTLSMode configuration because mTLSMode defaults to permissive.
 
-**Independent Test**: Deploy two agent workloads with SPIRE, create AgentRuntimes with no explicit mTLSMode, verify the pod template has `kagenti.io/mtls-mode: permissive` annotation, authbridge sidecar has `MTLS_MODE=permissive` env var, and `MTLSReady=True`.
+**Independent Test**: Deploy two agent workloads with SPIRE, create AgentRuntimes with no explicit mTLSMode, verify the pod template has `rossoctl.io/mtls-mode: permissive` annotation, authbridge sidecar has `MTLS_MODE=permissive` env var, and `MTLSReady=True`.
 
 ### Tests for User Story 1
 
-- [ ] T007 [P] [US1] Add unit tests for `kagenti.io/mtls-mode` annotation in `internal/controller/agentruntime_controller_test.go`. Test cases: (a) mTLSMode unset (defaults to permissive via kubebuilder marker) → pod template annotation is `kagenti.io/mtls-mode: permissive`; (b) mTLSMode `strict` → annotation is `strict`; (c) mTLSMode `disabled` → annotation is `disabled`. Also test webhook: verify `MTLS_MODE` env var is set on authbridge container. Create objects in envtest and read back from API server (Constitution II).
+- [ ] T007 [P] [US1] Add unit tests for `rossoctl.io/mtls-mode` annotation in `internal/controller/agentruntime_controller_test.go`. Test cases: (a) mTLSMode unset (defaults to permissive via kubebuilder marker) → pod template annotation is `rossoctl.io/mtls-mode: permissive`; (b) mTLSMode `strict` → annotation is `strict`; (c) mTLSMode `disabled` → annotation is `disabled`. Also test webhook: verify `MTLS_MODE` env var is set on authbridge container. Create objects in envtest and read back from API server (Constitution II).
 - [ ] T008 [P] [US1] Add unit tests for `MTLSReady` condition in `internal/controller/agentruntime_controller_test.go`. Test cases: (a) mTLSMode permissive + spiffe-helper present → `MTLSReady=True/SPIREAvailable`; (b) mTLSMode permissive + no spiffe-helper → `MTLSReady=False/SPIREUnavailable`; (c) mTLSMode disabled → `MTLSReady=True/MTLSDisabled`. Read back AgentRuntime from envtest API server (Constitution II).
-- [ ] T009 [P] [US1] Add unit test for annotation change on mTLSMode transition in `internal/controller/agentruntime_controller_test.go`. Verify that changing mTLSMode from `permissive` to `strict` or `disabled` results in a different `kagenti.io/mtls-mode` annotation on the workload pod template, triggering a rolling restart. Note: mTLSMode is NOT in the config hash (per PR #405) — the annotation is the restart mechanism.
+- [ ] T009 [P] [US1] Add unit test for annotation change on mTLSMode transition in `internal/controller/agentruntime_controller_test.go`. Verify that changing mTLSMode from `permissive` to `strict` or `disabled` results in a different `rossoctl.io/mtls-mode` annotation on the workload pod template, triggering a rolling restart. Note: mTLSMode is NOT in the config hash (per PR #405) — the annotation is the restart mechanism.
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Wire T005 and T006 into the reconcile flow end-to-end. Create an AgentRuntime with no explicit mTLSMode, reconcile, verify: (a) the resolved mTLSMode is `permissive`; (b) the pod template has `kagenti.io/mtls-mode: permissive` annotation; (c) `MTLSReady` condition is set; (d) webhook sets `MTLS_MODE` env var on authbridge container.
-- [ ] T011 [US1] Verify that changing `mTLSMode` on an existing AgentRuntime triggers a workload rolling restart via the `kagenti.io/mtls-mode` annotation change on the pod template (NOT via config hash — mTLSMode is excluded from the hash per PR #405).
+- [ ] T010 [US1] Wire T005 and T006 into the reconcile flow end-to-end. Create an AgentRuntime with no explicit mTLSMode, reconcile, verify: (a) the resolved mTLSMode is `permissive`; (b) the pod template has `rossoctl.io/mtls-mode: permissive` annotation; (c) `MTLSReady` condition is set; (d) webhook sets `MTLS_MODE` env var on authbridge container.
+- [ ] T011 [US1] Verify that changing `mTLSMode` on an existing AgentRuntime triggers a workload rolling restart via the `rossoctl.io/mtls-mode` annotation change on the pod template (NOT via config hash — mTLSMode is excluded from the hash per PR #405).
 
 **Checkpoint**: Agent-to-agent mTLS defaults to permissive. Annotation and conditions correct.
 
@@ -146,12 +146,12 @@ The following are already implemented and do NOT need new code:
 
 ---
 
-## Phase 7: Authbridge Verification (kagenti-extensions)
+## Phase 7: Authbridge Verification (rossocortex)
 
 **Purpose**: Verify authbridge mTLS is complete and matches operator expectations
 
 - [x] T019 [DONE] Envoy mTLS wiring confirmed — webhook injector has `MTLSEnabled`, `MTLSPermissive`, `MTLSStrict` template fields driving envoy TLS contexts.
-- [ ] T020 [P] Verify the `cfg.MTLS` config schema in `authbridge/authlib/config/config.go` matches what the operator generates. Specifically: does the authbridge expect `mtls:\n  mode: permissive` or a different shape? Clone `kagenti-extensions` and check.
+- [ ] T020 [P] Verify the `cfg.MTLS` config schema in `authbridge/authlib/config/config.go` matches what the operator generates. Specifically: does the authbridge expect `mtls:\n  mode: permissive` or a different shape? Clone `rossocortex` and check.
 - [ ] T021 Add mTLS integration tests (if not already present in authbridge). Test: (a) permissive accepts TLS + plaintext; (b) strict rejects plaintext; (c) cert rotation.
 
 **Checkpoint**: Authbridge config contract verified.
@@ -174,7 +174,7 @@ The following are already implemented and do NOT need new code:
 | T002 | NEW | make generate && make manifests |
 | T003 | NEW | Flip two flag defaults to true |
 | T004 | NEW | Add deprecation warning logs (flag defaults already false) |
-| T005 | REPLACED | Set `kagenti.io/mtls-mode` annotation on pod template + webhook sets `MTLS_MODE` env var |
+| T005 | REPLACED | Set `rossoctl.io/mtls-mode` annotation on pod template + webhook sets `MTLS_MODE` env var |
 | T006 | NEW | MTLSReady condition logic in reconcile loop |
 | T007-T009 | NEW | Unit tests for annotation, condition, annotation change |
 | T010-T011 | NEW | End-to-end wiring verification |

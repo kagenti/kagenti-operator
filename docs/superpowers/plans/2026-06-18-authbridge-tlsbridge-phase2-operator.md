@@ -4,23 +4,23 @@
 
 **Goal:** Make the AuthBridge TLS bridge work end-to-end on operator-deployed agents — the operator provisions a per-agent cert-manager CA, mounts the signing key into the sidecar and the trust cert + trust env into the agent, and renders the `tls_bridge:` config block — so a real agent's outbound HTTPS is decrypted into the pipeline, gated behind an off-by-default `tlsBridgeMode`.
 
-**Architecture:** A new `tlsBridgeMode: disabled|enabled` field on the `AgentRuntime` CRD, resolved CR→namespace→default exactly like `mtlsMode`. When `enabled` (and feature-gated on, and cert-manager present, and `authBridgeMode ∈ {proxy-sidecar, lite}`), a new per-agent CA reconciler creates a SelfSigned `Issuer` + a CA `Certificate` (`isCA: true`, **no Name Constraints**) → a Secret. The mutating webhook hard-mounts `tls.crt`/`tls.key` into the sidecar (mode `0440`) and `ca.crt` + trust env into the agent, and renders `tls_bridge: {mode: enabled, ca_dir: /etc/authbridge/tls-bridge-ca}` into the per-agent config (consolidated schema, kagenti-extensions#522 — no scope/ca_source/cert-paths). The `:9094` session-API localhost-bind (it now carries decrypted bodies) already shipped authbridge-side in #522, so the operator PR carries no extensions work; raw-body redaction is a deferred follow-up.
+**Architecture:** A new `tlsBridgeMode: disabled|enabled` field on the `AgentRuntime` CRD, resolved CR→namespace→default exactly like `mtlsMode`. When `enabled` (and feature-gated on, and cert-manager present, and `authBridgeMode ∈ {proxy-sidecar, lite}`), a new per-agent CA reconciler creates a SelfSigned `Issuer` + a CA `Certificate` (`isCA: true`, **no Name Constraints**) → a Secret. The mutating webhook hard-mounts `tls.crt`/`tls.key` into the sidecar (mode `0440`) and `ca.crt` + trust env into the agent, and renders `tls_bridge: {mode: enabled, ca_dir: /etc/authbridge/tls-bridge-ca}` into the per-agent config (consolidated schema, rossocortex#522 — no scope/ca_source/cert-paths). The `:9094` session-API localhost-bind (it now carries decrypted bodies) already shipped authbridge-side in #522, so the operator PR carries no extensions work; raw-body redaction is a deferred follow-up.
 
-**Tech Stack:** Go 1.x (kagenti-operator, kubebuilder/controller-runtime), cert-manager Go API `github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1` (v1.20.2, already vendored + scheme-registered), `k8s.io/utils/ptr`. Phase-1 AuthBridge code (kagenti-extensions PR #522) is the **prerequisite** — the rendered `tls_bridge:` block is only understood by the post-#522 authbridge image.
+**Tech Stack:** Go 1.x (rossoctl-operator, kubebuilder/controller-runtime), cert-manager Go API `github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1` (v1.20.2, already vendored + scheme-registered), `k8s.io/utils/ptr`. Phase-1 AuthBridge code (rossocortex PR #522) is the **prerequisite** — the rendered `tls_bridge:` block is only understood by the post-#522 authbridge image.
 
 **Locked decisions (from brainstorming):**
 1. CRD `tlsBridgeMode: disabled|enabled` maps 1:1 to `tls_bridge.mode`; `envoy-sidecar` + `enabled` ⇒ validating-webhook reject. (The authbridge schema was consolidated in #522: no scope/external — `enabled` intercepts all eligible on the configured ports.)
 2. **Unconstrained** per-agent CA (no X.509 Name Constraints). Containment = per-agent isolation + sidecar-only `0440` key + rotation. (Avoids the cert-manager `NameConstraints` feature-gate dependency entirely.)
 3. Fully **decoupled** from SPIRE/mTLS. Hard deps only: `authBridgeMode ∈ {proxy-sidecar, lite}` + cert-manager installed.
-   - **Cross-repo dependency for true SPIRE-free operation (added post-implementation, verified e2e):** the operator alone does not achieve this. The kagenti chart renders an empty `spiffe: {}` into every agent's base config, and the pre-fix authbridge binary built the SPIFFE provider on mere presence of that block → `NewX509Source` blocked forever when no SPIRE socket was mounted. SPIRE-free boot therefore requires **kagenti-extensions #523** (need-driven SPIFFE provider: build only when mTLS or a `identity.type=spiffe` plugin consumes it). On the operator side, `applyTLSBridgeMounts` now calls `ensureFSGroup` **unconditionally** (not only under `spireEnabled`) so the non-root sidecar can read the `0440` CA Secret without SPIRE — see the `0440`/`FSGroup=0` note below, which previously held only on the SPIRE path.
+   - **Cross-repo dependency for true SPIRE-free operation (added post-implementation, verified e2e):** the operator alone does not achieve this. The rossoctl chart renders an empty `spiffe: {}` into every agent's base config, and the pre-fix authbridge binary built the SPIFFE provider on mere presence of that block → `NewX509Source` blocked forever when no SPIRE socket was mounted. SPIRE-free boot therefore requires **rossocortex #523** (need-driven SPIFFE provider: build only when mTLS or a `identity.type=spiffe` plugin consumes it). On the operator side, `applyTLSBridgeMounts` now calls `ensureFSGroup` **unconditionally** (not only under `spireEnabled`) so the non-root sidecar can read the `0440` CA Secret without SPIRE — see the `0440`/`FSGroup=0` note below, which previously held only on the SPIRE path.
 
-**Spec:** `kagenti-extensions/authbridge/docs/superpowers/specs/2026-06-12-authbridge-tlsbridge-design.md` (Phase 2 section). **Phase 1 plan:** `kagenti-extensions/authbridge/docs/superpowers/plans/2026-06-17-authbridge-tlsbridge-phase1.md`.
+**Spec:** `rossocortex/authbridge/docs/superpowers/specs/2026-06-12-authbridge-tlsbridge-design.md` (Phase 2 section). **Phase 1 plan:** `rossocortex/authbridge/docs/superpowers/plans/2026-06-17-authbridge-tlsbridge-phase1.md`.
 
 ---
 
 ## Verified anchors in the operator (source of truth)
 
-All operator paths under `kagenti-operator/kagenti-operator/` unless noted. Verified 2026-06-18.
+All operator paths under `operator/operator/` unless noted. Verified 2026-06-18.
 
 - **CRD:** `api/v1alpha1/agentruntime_types.go` — `AgentRuntimeSpec` with `AuthBridgeMode string` (`:79`, enum `proxy-sidecar;envoy-sidecar;lite;waypoint`) and `MTLSMode string` (`:116`, `+kubebuilder:default=permissive`, enum `disabled;permissive;strict`). Both are bare strings validated by kubebuilder enum markers.
 - **Mode constants:** `internal/webhook/injector/constants.go` — AuthBridge modes `:18-22` (`ModeProxySidecar`, `ModeLite`, `ModeEnvoySidecar`, `ModeWaypoint`), mTLS modes `:66-70` (`MTLSModeDisabled`/`Permissive`/`Strict`).
@@ -33,15 +33,15 @@ All operator paths under `kagenti-operator/kagenti-operator/` unless noted. Veri
 - **Volumes:** `internal/webhook/injector/volume_builder.go` — `BuildResolvedVolumes(spireEnabled bool, envoyConfigMapName string)` (`:148`, the active path), `BuildRequiredVolumes()` (`:25`), `BuildRequiredVolumesNoSpire()` (`:99`). No Secret-backed volume exists today; volumes are appended `corev1.Volume{...}` literals; `Optional: ptr.To(true)` used (`:79` etc.); **no `DefaultMode` set anywhere today**.
 - **Container mounts + securitycontext:** `internal/webhook/injector/container_builder.go` — `BuildProxySidecarContainerWithPorts` volumeMounts (`:237-274`); `SecurityContext{RunAsUser: ptr.To(b.cfg.Proxy.UID), RunAsGroup: ..., RunAsNonRoot: true, AllowPrivilegeEscalation: false}` (`:301-311`); envoy analog (`:85-143`, `:189-194`). `Proxy.UID` default 1337.
 - **cert-manager:** `internal/controller/sharedtrust_controller.go` imports `cmv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"` + `cmmeta` (`:24-25`); `cmv1.AddToScheme(scheme)` in `cmd/main.go:75`; `CertManagerCRDExists(cfg)` (`:394-430`) reusable; registration gated on it in `cmd/main.go:709-718`. **No per-agent Certificate/Issuer is created anywhere today.** `CreateOrUpdate` + `SetControllerReference` template: `internal/controller/mlflow_controller.go:281-299`.
-- **RBAC:** marker `sharedtrust_controller.go:95-96` (`certificates` + `clusterissuers`, verbs `get;list;watch`); static dupes `config/rbac/role.yaml:152-156` and `charts/kagenti-operator/templates/rbac/role.yaml:65-74` (hand-maintained, NOT marker-synced).
+- **RBAC:** marker `sharedtrust_controller.go:95-96` (`certificates` + `clusterissuers`, verbs `get;list;watch`); static dupes `config/rbac/role.yaml:152-156` and `charts/operator/templates/rbac/role.yaml:65-74` (hand-maintained, NOT marker-synced).
 - **Validating webhook:** `internal/webhook/v1alpha1/agentruntime_webhook.go` — already rejects `mtlsMode != disabled` with `envoy-sidecar`; the place to add the `tlsBridgeMode=enabled` + `envoy-sidecar` reject.
-- **cert-manager version:** `kagenti-operator/go.mod:8` → `v1.20.2`. `CertificateSpec.NameConstraints` exists but is NOT used (decision 2).
+- **cert-manager version:** `operator/go.mod:8` → `v1.20.2`. `CertificateSpec.NameConstraints` exists but is NOT used (decision 2).
 
 ---
 
 ## File Structure
 
-**kagenti-operator (bulk):**
+**rossoctl-operator (bulk):**
 - `api/v1alpha1/agentruntime_types.go` — new `TLSBridgeMode` field.
 - `internal/webhook/injector/constants.go` — `TLSBridgeMode*` consts + the CA mount path/volume names.
 - `internal/webhook/config/feature_gates.go` (+ `feature_gate_loader.go` banner) — `TLSBridge bool` gate.
@@ -54,9 +54,9 @@ All operator paths under `kagenti-operator/kagenti-operator/` unless noted. Veri
 - `internal/controller/tlsbridge_ca_controller.go` — **new** per-agent CA reconciler.
 - `internal/webhook/v1alpha1/agentruntime_webhook.go` — envoy-sidecar reject.
 - `cmd/main.go` — register the reconciler (gated).
-- RBAC marker on the new reconciler + `config/rbac/role.yaml` + `charts/kagenti-operator/templates/rbac/role.yaml`.
+- RBAC marker on the new reconciler + `config/rbac/role.yaml` + `charts/operator/templates/rbac/role.yaml`.
 
-**kagenti-extensions:** none required for this PR. The `:9094` localhost-bind already
+**rossocortex:** none required for this PR. The `:9094` localhost-bind already
 shipped in #522 (`config.Load` rewrites `session_api_addr` to loopback when
 `tls_bridge.mode=enabled`). Raw-body redaction is a deferred follow-up, not a Phase-2 blocker.
 
@@ -73,19 +73,19 @@ shipped in #522 (`config.Load` rewrites `session_api_addr` to loopback when
 - [ ] **Step 1: Branch the operator repo off current main**
 
 ```bash
-cd /Users/haihuang/works/go/src/github.com/kagenti/kagenti-operator
+cd /Users/haihuang/works/go/src/github.com/rossoctl/operator
 git fetch origin main   # or upstream main, per your remote
 git checkout -b feat/tlsbridge-phase2 origin/main
 ```
 
-(All operator work happens here. No kagenti-extensions changes are needed — the `:9094` localhost-bind already landed in #522.)
+(All operator work happens here. No rossocortex changes are needed — the `:9094` localhost-bind already landed in #522.)
 
 ---
 
 ## Task 1: CRD field `TLSBridgeMode`
 
 **Files:**
-- Modify: `kagenti-operator/api/v1alpha1/agentruntime_types.go` (after `MTLSMode`, ~`:116`)
+- Modify: `operator/api/v1alpha1/agentruntime_types.go` (after `MTLSMode`, ~`:116`)
 
 - [ ] **Step 1: Add the field** to `AgentRuntimeSpec`, immediately after the `MTLSMode` field:
 
@@ -102,17 +102,17 @@ git checkout -b feat/tlsbridge-phase2 origin/main
 - [ ] **Step 2: Regenerate CRD manifests + deepcopy**
 
 ```bash
-cd kagenti-operator && make generate manifests
+cd rossoctl-operator && make generate manifests
 ```
-Expected: `zz_generated.deepcopy.go` unchanged (string field needs no deepcopy), and `config/crd/bases/*agentruntime*.yaml` now lists `tlsBridgeMode` with enum `[disabled, enabled]`, default `disabled`. If the chart vendors the CRD, also run any chart-CRD sync target (e.g. `make sync-crds` if present) or copy the regenerated CRD into `charts/kagenti-operator/`.
+Expected: `zz_generated.deepcopy.go` unchanged (string field needs no deepcopy), and `config/crd/bases/*agentruntime*.yaml` now lists `tlsBridgeMode` with enum `[disabled, enabled]`, default `disabled`. If the chart vendors the CRD, also run any chart-CRD sync target (e.g. `make sync-crds` if present) or copy the regenerated CRD into `charts/operator/`.
 
 - [ ] **Step 3: Build + commit**
 
-Run: `cd kagenti-operator && go build ./...`
+Run: `cd rossoctl-operator && go build ./...`
 Expected: builds.
 
 ```bash
-git add kagenti-operator/api/v1alpha1/agentruntime_types.go kagenti-operator/config/crd kagenti-operator/charts 2>/dev/null
+git add operator/api/v1alpha1/agentruntime_types.go operator/config/crd operator/charts 2>/dev/null
 git commit -s -m "feat(tlsbridge): add AgentRuntime.spec.tlsBridgeMode (disabled|enabled)"
 ```
 
@@ -121,7 +121,7 @@ git commit -s -m "feat(tlsbridge): add AgentRuntime.spec.tlsBridgeMode (disabled
 ## Task 2: Constants
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/injector/constants.go` (near the mTLS consts `:66-70`)
+- Modify: `operator/internal/webhook/injector/constants.go` (near the mTLS consts `:66-70`)
 
 - [ ] **Step 1: Add the constants** after the mTLS mode block:
 
@@ -143,7 +143,7 @@ git commit -s -m "feat(tlsbridge): add AgentRuntime.spec.tlsBridgeMode (disabled
 Run: `go build ./...`
 
 ```bash
-git add kagenti-operator/internal/webhook/injector/constants.go
+git add operator/internal/webhook/injector/constants.go
 git commit -s -m "feat(tlsbridge): mode + CA-mount constants"
 ```
 
@@ -152,8 +152,8 @@ git commit -s -m "feat(tlsbridge): mode + CA-mount constants"
 ## Task 3: Off-by-default feature gate
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/config/feature_gates.go` (struct `:13`, `DefaultFeatureGates` `:34`, banner `:178`)
-- Test: `kagenti-operator/internal/webhook/config/feature_gates_test.go` (or the existing test file)
+- Modify: `operator/internal/webhook/config/feature_gates.go` (struct `:13`, `DefaultFeatureGates` `:34`, banner `:178`)
+- Test: `operator/internal/webhook/config/feature_gates_test.go` (or the existing test file)
 
 - [ ] **Step 1: Write the failing test** — default must be OFF:
 
@@ -168,7 +168,7 @@ func TestDefaultFeatureGates_TLSBridgeOff(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL** (`g.TLSBridge` undefined)
 
-Run: `cd kagenti-operator && go test ./internal/webhook/config/ -run TestDefaultFeatureGates_TLSBridge -v`
+Run: `cd rossoctl-operator && go test ./internal/webhook/config/ -run TestDefaultFeatureGates_TLSBridge -v`
 
 - [ ] **Step 3: Add the field** to the `FeatureGates` struct (after `SkillDiscovery`):
 
@@ -187,7 +187,7 @@ Run: `go test ./internal/webhook/config/ -run TestDefaultFeatureGates_TLSBridge 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/config/
+git add operator/internal/webhook/config/
 git commit -s -m "feat(tlsbridge): add off-by-default TLSBridge feature gate"
 ```
 
@@ -199,7 +199,7 @@ git commit -s -m "feat(tlsbridge): add off-by-default TLSBridge feature gate"
 - Modify: `agentruntime_config.go` (`AgentRuntimeOverrides` `:36`, `extractOverrides` `:102-126`)
 - Modify: `namespace_config.go` (add `ExtractTLSBridgeMode`, mirror `ExtractMTLSMode` `:171-186`)
 - Modify: `resolved_config.go` (`ResolvedConfig` `:63-64`, `ResolveConfig` `:119-128`)
-- Test: `kagenti-operator/internal/webhook/injector/resolved_config_test.go`
+- Test: `operator/internal/webhook/injector/resolved_config_test.go`
 
 - [ ] **Step 1: Write the failing test** — resolution prefers CR over namespace over default:
 
@@ -222,7 +222,7 @@ func TestResolveConfig_TLSBridgeMode_Precedence(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL** (`TLSBridgeMode` undefined on overrides/resolved)
 
-Run: `cd kagenti-operator && go test ./internal/webhook/injector/ -run TestResolveConfig_TLSBridgeMode -v`
+Run: `cd rossoctl-operator && go test ./internal/webhook/injector/ -run TestResolveConfig_TLSBridgeMode -v`
 
 - [ ] **Step 3: Add the override field + extraction** in `agentruntime_config.go`. In `AgentRuntimeOverrides` (after `MTLSMode *string`):
 
@@ -274,7 +274,7 @@ Run: `go test ./internal/webhook/injector/ -run TestResolveConfig_TLSBridgeMode 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/injector/agentruntime_config.go kagenti-operator/internal/webhook/injector/namespace_config.go kagenti-operator/internal/webhook/injector/resolved_config.go kagenti-operator/internal/webhook/injector/resolved_config_test.go
+git add operator/internal/webhook/injector/agentruntime_config.go operator/internal/webhook/injector/namespace_config.go operator/internal/webhook/injector/resolved_config.go operator/internal/webhook/injector/resolved_config_test.go
 git commit -s -m "feat(tlsbridge): resolve tlsBridgeMode (CR>namespace>default)"
 ```
 
@@ -283,8 +283,8 @@ git commit -s -m "feat(tlsbridge): resolve tlsBridgeMode (CR>namespace>default)"
 ## Task 5: Validating-webhook reject (enabled + envoy-sidecar)
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/v1alpha1/agentruntime_webhook.go` (beside the existing mtls+envoy reject)
-- Test: `kagenti-operator/internal/webhook/v1alpha1/agentruntime_webhook_test.go`
+- Modify: `operator/internal/webhook/v1alpha1/agentruntime_webhook.go` (beside the existing mtls+envoy reject)
+- Test: `operator/internal/webhook/v1alpha1/agentruntime_webhook_test.go`
 
 - [ ] **Step 1: Write the failing test**:
 
@@ -307,7 +307,7 @@ func TestValidate_TLSBridgeEnabled_RejectsEnvoySidecar(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL** (no rejection yet)
 
-Run: `cd kagenti-operator && go test ./internal/webhook/v1alpha1/ -run TestValidate_TLSBridgeEnabled -v`
+Run: `cd rossoctl-operator && go test ./internal/webhook/v1alpha1/ -run TestValidate_TLSBridgeEnabled -v`
 
 - [ ] **Step 3: Add the check** beside the mtls+envoy reject:
 
@@ -324,7 +324,7 @@ Run: `go test ./internal/webhook/v1alpha1/ -run TestValidate_TLSBridgeEnabled -v
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/v1alpha1/
+git add operator/internal/webhook/v1alpha1/
 git commit -s -m "feat(tlsbridge): reject tlsBridgeMode=enabled with envoy-sidecar"
 ```
 
@@ -333,12 +333,12 @@ git commit -s -m "feat(tlsbridge): reject tlsBridgeMode=enabled with envoy-sidec
 ## Task 6: Per-agent CA reconciler (net-new)
 
 **Files:**
-- Create: `kagenti-operator/internal/controller/tlsbridge_ca_controller.go`
-- Test: `kagenti-operator/internal/controller/tlsbridge_ca_controller_test.go`
+- Create: `operator/internal/controller/tlsbridge_ca_controller.go`
+- Test: `operator/internal/controller/tlsbridge_ca_controller_test.go`
 
 This reconciler watches `AgentRuntime`. When the resolved mode is `enabled` AND the feature gate is on AND cert-manager is present, it ensures (per agent): a namespace SelfSigned `Issuer` (shared, name `authbridge-tls-bridge-selfsigned`) and a CA `Certificate` (`isCA: true`, `secretName: <agent>-tls-bridge-ca`, **no nameConstraints**) owned by the AgentRuntime. cert-manager then issues the Secret (`tls.crt`/`tls.key`/`ca.crt`). The hard pod-mount (Task 7) blocks pod start until that Secret exists — solving the ordering race.
 
-> **Contract with authbridge `FileSource` (kagenti-extensions#522).** The bridge's
+> **Contract with authbridge `FileSource` (rossocortex#522).** The bridge's
 > `NewFileSource` now *validates* the mounted Secret at boot and **fails loud** if the
 > cert is not a CA (`IsCA=false` / missing `KeyUsageCertSign`) or if cert/key don't match.
 > So the `Certificate` below MUST keep `IsCA: true` **and** `Usages` including
@@ -364,7 +364,7 @@ func TestTLSBridgeCAReconciler_CreatesIssuerAndCert(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL** (`TLSBridgeCAReconciler` undefined)
 
-Run: `cd kagenti-operator && go test ./internal/controller/ -run TestTLSBridgeCAReconciler -v`
+Run: `cd rossoctl-operator && go test ./internal/controller/ -run TestTLSBridgeCAReconciler -v`
 
 - [ ] **Step 3: Implement the reconciler**:
 
@@ -382,8 +382,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	ctrl "sigs.k8s.io/controller-runtime"
-	agentv1alpha1 "github.com/kagenti/kagenti-operator/api/v1alpha1"
-	"github.com/kagenti/kagenti-operator/internal/webhook/injector"
+	agentv1alpha1 "github.com/rossoctl/operator/api/v1alpha1"
+	"github.com/rossoctl/operator/internal/webhook/injector"
 )
 
 const tlsBridgeSelfSignedIssuer = "authbridge-tls-bridge-selfsigned"
@@ -472,10 +472,10 @@ Run: `go test ./internal/controller/ -run TestTLSBridgeCAReconciler -v`
 
 - [ ] **Step 6: Build + commit**
 
-Run: `cd kagenti-operator && go build ./... && go test ./internal/controller/ -run TLSBridge`
+Run: `cd rossoctl-operator && go build ./... && go test ./internal/controller/ -run TLSBridge`
 
 ```bash
-git add kagenti-operator/internal/controller/tlsbridge_ca_controller.go kagenti-operator/internal/controller/tlsbridge_ca_controller_test.go kagenti-operator/cmd/main.go
+git add operator/internal/controller/tlsbridge_ca_controller.go operator/internal/controller/tlsbridge_ca_controller_test.go operator/cmd/main.go
 git commit -s -m "feat(tlsbridge): per-agent cert-manager CA reconciler (unconstrained)"
 ```
 
@@ -484,15 +484,15 @@ git commit -s -m "feat(tlsbridge): per-agent cert-manager CA reconciler (unconst
 ## Task 7: RBAC delta (create/update issuers + certificates)
 
 **Files:**
-- Modify: `kagenti-operator/config/rbac/role.yaml` (the cert-manager rule `:152-156`)
-- Modify: `kagenti-operator/charts/kagenti-operator/templates/rbac/role.yaml` (`:65-74`)
+- Modify: `operator/config/rbac/role.yaml` (the cert-manager rule `:152-156`)
+- Modify: `operator/charts/operator/templates/rbac/role.yaml` (`:65-74`)
 
 (The kubebuilder marker was added in Task 6 Step 3; `make manifests` regenerates `config/rbac/role.yaml`. The chart role is hand-maintained — edit it directly.)
 
 - [ ] **Step 1: Regenerate + verify the generated rule**
 
 ```bash
-cd kagenti-operator && make manifests
+cd rossoctl-operator && make manifests
 ```
 Expected: `config/rbac/role.yaml` now grants `create;update;patch;delete` (plus `get;list;watch`) on `cert-manager.io` `certificates` AND `issuers` (issuers newly added).
 
@@ -518,7 +518,7 @@ Expected: `config/rbac/role.yaml` now grants `create;update;patch;delete` (plus 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add kagenti-operator/config/rbac/role.yaml kagenti-operator/charts/kagenti-operator/templates/rbac/role.yaml
+git add operator/config/rbac/role.yaml operator/charts/operator/templates/rbac/role.yaml
 git commit -s -m "feat(tlsbridge): RBAC to create per-agent cert-manager Issuer/Certificate"
 ```
 
@@ -527,7 +527,7 @@ git commit -s -m "feat(tlsbridge): RBAC to create per-agent cert-manager Issuer/
 ## Task 8: Render the `tls_bridge:` config block
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/injector/pod_mutator.go` — `ensurePerAgentConfigMap` (`:861`, the `mtls:` block `:930-938`); thread a `tlsBridgeMode string` param + pass it from both call sites.
+- Modify: `operator/internal/webhook/injector/pod_mutator.go` — `ensurePerAgentConfigMap` (`:861`, the `mtls:` block `:930-938`); thread a `tlsBridgeMode string` param + pass it from both call sites.
 - Test: extend `pod_mutator_test.go`
 
 - [ ] **Step 1: Write the failing test** — enabled renders the block; disabled scrubs it:
@@ -544,13 +544,13 @@ func TestEnsurePerAgentConfigMap_TLSBridgeBlock(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL**
 
-Run: `cd kagenti-operator && go test ./internal/webhook/injector/ -run TestEnsurePerAgentConfigMap_TLSBridge -v`
+Run: `cd rossoctl-operator && go test ./internal/webhook/injector/ -run TestEnsurePerAgentConfigMap_TLSBridge -v`
 
 - [ ] **Step 3: Add the render block** right after the `mtls:` block (`:938`), and thread `tlsBridgeMode` into the function signature + both call sites:
 
 ```go
 	if tlsBridgeMode == TLSBridgeModeEnabled {
-		// Consolidated schema (kagenti-extensions#522): mode + ca_dir only.
+		// Consolidated schema (rossocortex#522): mode + ca_dir only.
 		// ca_dir = the mounted cert-manager Secret (tls.crt/tls.key/ca.crt by
 		// convention). No scope/ca_source/cert+key paths.
 		cfg["tls_bridge"] = map[string]interface{}{
@@ -569,7 +569,7 @@ Run: `go test ./internal/webhook/injector/ -run TestEnsurePerAgentConfigMap_TLSB
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/injector/pod_mutator.go kagenti-operator/internal/webhook/injector/pod_mutator_test.go
+git add operator/internal/webhook/injector/pod_mutator.go operator/internal/webhook/injector/pod_mutator_test.go
 git commit -s -m "feat(tlsbridge): render tls_bridge config block (mode + ca_dir)"
 ```
 
@@ -578,9 +578,9 @@ git commit -s -m "feat(tlsbridge): render tls_bridge config block (mode + ca_dir
 ## Task 9: Mount the CA — sidecar key (0440) + agent cert + trust env
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/injector/volume_builder.go` (helper `tlsBridgeCAVolume`; add to `BuildResolvedVolumes` `:148` + the two legacy builders)
-- Modify: `kagenti-operator/internal/webhook/injector/container_builder.go` (sidecar mount `:237`)
-- Modify: `kagenti-operator/internal/webhook/injector/pod_mutator.go` (new `applyTLSBridgeMounts(podSpec, agentName, tlsBridgeMode)`; call it gated, after the agent-container loop ~`:535`)
+- Modify: `operator/internal/webhook/injector/volume_builder.go` (helper `tlsBridgeCAVolume`; add to `BuildResolvedVolumes` `:148` + the two legacy builders)
+- Modify: `operator/internal/webhook/injector/container_builder.go` (sidecar mount `:237`)
+- Modify: `operator/internal/webhook/injector/pod_mutator.go` (new `applyTLSBridgeMounts(podSpec, agentName, tlsBridgeMode)`; call it gated, after the agent-container loop ~`:535`)
 - Test: `pod_mutator_test.go`
 
 > **Mode `0440`, not `0400`.** The sidecar runs non-root as `Proxy.UID` (1337); `ensureFSGroup` sets pod `FSGroup=0`. Kubernetes group-owns Secret-volume files by `FSGroup`, so `0440` (owner+group read) lets the proxy read `tls.key` via its `FSGroup=0` supplementary group. `0400` (owner-only) would deny the non-root proxy → no minting → silent fall-open to tunnel. Verify in Task 12.
@@ -603,7 +603,7 @@ func TestApplyTLSBridgeMounts_Enabled(t *testing.T) {
 
 - [ ] **Step 2: Run — expect FAIL**
 
-Run: `cd kagenti-operator && go test ./internal/webhook/injector/ -run TestApplyTLSBridgeMounts -v`
+Run: `cd rossoctl-operator && go test ./internal/webhook/injector/ -run TestApplyTLSBridgeMounts -v`
 
 - [ ] **Step 3: Add the volume helper** in `volume_builder.go` and append it from the volume builders when bridging is on (thread an `enabled bool` + `secretName string`, or append unconditionally in a new gated call — follow the existing builder signatures):
 
@@ -671,7 +671,7 @@ Run: `go test ./internal/webhook/injector/ -run TestApplyTLSBridgeMounts -v`
 - [ ] **Step 7: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/injector/volume_builder.go kagenti-operator/internal/webhook/injector/pod_mutator.go kagenti-operator/internal/webhook/injector/pod_mutator_test.go
+git add operator/internal/webhook/injector/volume_builder.go operator/internal/webhook/injector/pod_mutator.go operator/internal/webhook/injector/pod_mutator_test.go
 git commit -s -m "feat(tlsbridge): mount per-agent CA — sidecar key (0440) + agent ca.crt + trust env"
 ```
 
@@ -680,7 +680,7 @@ git commit -s -m "feat(tlsbridge): mount per-agent CA — sidecar key (0440) + a
 ## Task 10: Wire mode resolution → render + mounts in the mutator
 
 **Files:**
-- Modify: `kagenti-operator/internal/webhook/injector/pod_mutator.go` (the proxy-sidecar mutation path, near the `MTLS_MODE` injection `:519-526`)
+- Modify: `operator/internal/webhook/injector/pod_mutator.go` (the proxy-sidecar mutation path, near the `MTLS_MODE` injection `:519-526`)
 - Test: `pod_mutator_test.go`
 
 - [ ] **Step 1: Write the failing end-to-end mutation test** — a pod admitted for an `enabled` proxy-sidecar agent (gate on) gets BOTH the `tls_bridge:` config AND the mounts/env; an `envoy-sidecar`/disabled/gate-off agent gets neither:
@@ -723,7 +723,7 @@ Run: `go test ./internal/webhook/injector/ -v`
 - [ ] **Step 5: Commit**
 
 ```bash
-git add kagenti-operator/internal/webhook/injector/pod_mutator.go kagenti-operator/internal/webhook/injector/pod_mutator_test.go
+git add operator/internal/webhook/injector/pod_mutator.go operator/internal/webhook/injector/pod_mutator_test.go
 git commit -s -m "feat(tlsbridge): gate + wire render/mounts in the mutating webhook"
 ```
 
@@ -785,9 +785,9 @@ git commit -s -m "test(tlsbridge): e2e — operator-provisioned CA decrypts agen
 
 The operator renders a `tls_bridge:` block only the post-#522 authbridge image understands (the `:9094` localhost-bind + `FileSource` validation are already in #522). So:
 
-1. **kagenti-extensions**: merge PR #522 → tag a new `v0.x.0-alpha.N` authbridge/proxy-init image.
-2. **kagenti-operator**: merge this Phase-2 PR → tag `v0.x.0-alpha.M`.
-3. **kagenti**: bump the chart pins (operator image + authbridge sidecar images) to the new tags; this is where it becomes installable. Same operator→extensions→kagenti order as the alpha.9 release.
+1. **rossocortex**: merge PR #522 → tag a new `v0.x.0-alpha.N` authbridge/proxy-init image.
+2. **rossoctl-operator**: merge this Phase-2 PR → tag `v0.x.0-alpha.M`.
+3. **rossoctl**: bump the chart pins (operator image + authbridge sidecar images) to the new tags; this is where it becomes installable. Same operator→extensions→rossoctl order as the alpha.9 release.
 
 ---
 

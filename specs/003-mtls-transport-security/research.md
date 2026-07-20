@@ -2,9 +2,9 @@
 
 ## R1: Authbridge mTLS Config Delivery (UPDATED)
 
-**Decision**: ~~The operator injects `mtls:` block into the authbridge ConfigMap.~~ **Superseded per PR #405 review.** The controller sets a `kagenti.io/mtls-mode` annotation on the pod template. The webhook reads `mTLSMode` from the AgentRuntime CR at pod CREATE time and sets `MTLS_MODE` env var on the authbridge container.
+**Decision**: ~~The operator injects `mtls:` block into the authbridge ConfigMap.~~ **Superseded per PR #405 review.** The controller sets a `rossoctl.io/mtls-mode` annotation on the pod template. The webhook reads `mTLSMode` from the AgentRuntime CR at pod CREATE time and sets `MTLS_MODE` env var on the authbridge container.
 
-**Annotation**: `kagenti.io/mtls-mode: permissive` (or `strict` or `disabled`) on pod template.
+**Annotation**: `rossoctl.io/mtls-mode: permissive` (or `strict` or `disabled`) on pod template.
 
 **Env var**: `MTLS_MODE=permissive` (or `strict` or `disabled`) on authbridge container.
 
@@ -34,7 +34,7 @@ spiffe:
 
 ## R3: Rolling Restart Mechanism (UPDATED)
 
-**Decision**: ~~mTLSMode flows through the config hash.~~ **Superseded per PR #405.** The controller sets a `kagenti.io/mtls-mode` annotation on the workload's pod template. When the annotation value changes (e.g., `permissive` → `strict`), Kubernetes detects a pod template change and triggers a rolling restart. This is independent of the platform config hash (`kagenti.io/config-hash`), which now only reflects cluster + namespace defaults.
+**Decision**: ~~mTLSMode flows through the config hash.~~ **Superseded per PR #405.** The controller sets a `rossoctl.io/mtls-mode` annotation on the workload's pod template. When the annotation value changes (e.g., `permissive` → `strict`), Kubernetes detects a pod template change and triggers a rolling restart. This is independent of the platform config hash (`rossoctl.io/config-hash`), which now only reflects cluster + namespace defaults.
 
 **Rationale**: PR #405 removes all CR-level fields from the config hash (2-layer merge: cluster + namespace only). A separate annotation preserves per-AgentRuntime mTLSMode restart semantics without conflating it with platform config.
 

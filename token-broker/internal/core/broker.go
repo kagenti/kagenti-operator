@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/kagenti/token-broker/internal/oauth"
-	pkgauth "github.com/kagenti/token-broker/pkg/oauth"
+	"github.com/rossoctl/token-broker/internal/oauth"
+	pkgauth "github.com/rossoctl/token-broker/pkg/oauth"
 )
 
 // TokenBroker orchestrates token acquisition for OAuth sessions.

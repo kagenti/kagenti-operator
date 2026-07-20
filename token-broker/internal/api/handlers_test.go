@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kagenti/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/core"
 )
 
 // mockBroker implements a mock TokenBroker for testing

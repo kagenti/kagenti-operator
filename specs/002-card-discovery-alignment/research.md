@@ -18,13 +18,13 @@
 
 ## R-002: Port resolution annotation name
 
-**Decision**: Use `kagenti.io/port` on the Service.
+**Decision**: Use `rossoctl.io/port` on the Service.
 
-**Rationale**: Follows the project's existing annotation namespace (`kagenti.io/type`, `kagenti.io/framework`). Placed on the Service (not the Deployment) because the port is a Service-level concern.
+**Rationale**: Follows the project's existing annotation namespace (`rossoctl.io/type`, `rossoctl.io/framework`). Placed on the Service (not the Deployment) because the port is a Service-level concern.
 
 **Alternatives considered**:
-- `agent.kagenti.dev/port`: uses the CRD API group, which is for CRD fields not annotations
-- `protocol.kagenti.io/a2a-port`: too specific, couples annotation to one protocol
+- `agent.rossoctl.dev/port`: uses the CRD API group, which is for CRD fields not annotations
+- `protocol.rossoctl.io/a2a-port`: too specific, couples annotation to one protocol
 
 ## R-003: Workload readiness check placement
 
@@ -85,7 +85,7 @@ func serviceHTTPPort(svc *corev1.Service) int32 {
 ```
 
 **New implementation**:
-1. Check `kagenti.io/port` annotation (parse as int32, validate > 0)
+1. Check `rossoctl.io/port` annotation (parse as int32, validate > 0)
 2. Look for port named `a2a`
 3. Look for port named `http`
 4. First port in spec

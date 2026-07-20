@@ -1,16 +1,16 @@
 # Token Broker Service
 
-The Token Broker is a standalone Kagenti service that enables **HITL (Human-in-the-Loop) Authorization** — allowing agents to obtain additional user permissions at runtime, beyond those provided when the task was submitted.
+The Token Broker is a standalone Rossoctl service that enables **HITL (Human-in-the-Loop) Authorization** — allowing agents to obtain additional user permissions at runtime, beyond those provided when the task was submitted.
 
 ## Overview
 
-Kagenti supports three route types for outbound agent requests:
+Rossoctl supports three route types for outbound agent requests:
 
 - **Passthrough** — forward the token as-is
 - **Token Exchange** — use a subset of the permissions already in the agent's token
 - **Token Broker** — obtain additional permissions with the user's help (this service)
 
-The Token Broker handles the third case. When an agent needs to access an external or internal resource that requires permissions not already present in its token, the Token Broker brings the user into the loop via an OAuth 2.0 PKCE flow — obtaining just-in-time, user-scoped credentials. Neither the agent nor Kagenti ever holds the user's credentials; the Token Broker only caches the resulting access token and controls which agents (those in the same user session) may use it.
+The Token Broker handles the third case. When an agent needs to access an external or internal resource that requires permissions not already present in its token, the Token Broker brings the user into the loop via an OAuth 2.0 PKCE flow — obtaining just-in-time, user-scoped credentials. Neither the agent nor Rossoctl ever holds the user's credentials; the Token Broker only caches the resulting access token and controls which agents (those in the same user session) may use it.
 
 The Token Broker:
 - **Acts as the OAuth client** with OAuth credentials (client_id, client_secret)
@@ -117,8 +117,8 @@ export OAUTH_CLIENT_ID=Ov23liXXXXXXXXXXXXXX
 export OAUTH_CLIENT_SECRET=your_oauth_app_secret
 export OAUTH_CALLBACK_URL=https://token-broker.example.com/oauth/callback
 export ALLOWED_REDIRECT_HOSTS=app.example.com
-export JWT_JWKS_URL=https://keycloak.example.com/realms/kagenti/protocol/openid-connect/certs
-export JWT_ISSUER=https://keycloak.example.com/realms/kagenti
+export JWT_JWKS_URL=https://keycloak.example.com/realms/rossoctl/protocol/openid-connect/certs
+export JWT_ISSUER=https://keycloak.example.com/realms/rossoctl
 export TOKEN_BROKER_SESSION_TIMEOUT=60s
 export TOKEN_BROKER_MAX_SESSIONS_PER_USER=5
 export TOKEN_BROKER_TOKEN_WAIT_TIMEOUT=300s

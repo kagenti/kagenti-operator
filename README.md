@@ -1,18 +1,18 @@
-# Kagenti Operator
+# Rossoctl Operator
 
-[![License](https://img.shields.io/github/license/kagenti/kagenti-operator)](LICENSE)
-![Contributors](https://img.shields.io/github/contributors/kagenti/kagenti-operator)
+[![License](https://img.shields.io/github/license/rossoctl/operator)](LICENSE)
+![Contributors](https://img.shields.io/github/contributors/rossoctl/operator)
 
-**Kagenti Operator** is a Kubernetes operator that automates the deployment, discovery, and security of AI agents in Kubernetes clusters. It provides workload identity (SPIFFE), mutual authentication (OAuth2/Keycloak), agent-to-agent trust (A2A signature verification), and observability (MLflow tracing) — all declaratively managed through Custom Resources.
+**Rossoctl Operator** is a Kubernetes operator that automates the deployment, discovery, and security of AI agents in Kubernetes clusters. It provides workload identity (SPIFFE), mutual authentication (OAuth2/Keycloak), agent-to-agent trust (A2A signature verification), and observability (MLflow tracing) — all declaratively managed through Custom Resources.
 
 ## Overview
 
-The Kagenti Operator manages the following Custom Resource Definitions (CRDs):
+The Rossoctl Operator manages the following Custom Resource Definitions (CRDs):
 
 | Resource | Purpose |
 |----------|---------|
-| **[AgentRuntime](./kagenti-operator/docs/api-reference.md#agentruntime)** | Enrolls a workload into the Kagenti platform — applies labels, triggers sidecar injection, and configures identity and observability |
-| **[AgentCard](./kagenti-operator/docs/api-reference.md#agentcard)** | Discovers, indexes, and verifies agent metadata for Kubernetes-native agent discovery |
+| **[AgentRuntime](./operator/docs/api-reference.md#agentruntime)** | Enrolls a workload into the Rossoctl platform — applies labels, triggers sidecar injection, and configures identity and observability |
+| **[AgentCard](./operator/docs/api-reference.md#agentcard)** | Discovers, indexes, and verifies agent metadata for Kubernetes-native agent discovery |
 
 ### Key Features
 
@@ -35,7 +35,7 @@ graph TB
         User -->|Creates| RuntimeCR[AgentRuntime CR]
     end
 
-    subgraph "Kagenti Operator"
+    subgraph "Rossoctl Operator"
         ValidationWebhook[Validating Webhooks]
         InjectionWebhook[AuthBridge Mutating Webhook]
         RuntimeController[AgentRuntime Controller]
@@ -97,9 +97,9 @@ The operator runs the following controllers and webhooks:
 
 ## Bundle Service
 
-Kagenti includes a dedicated bundle service used by AuthBridge clients to fetch authorization bundles.
+Rossoctl includes a dedicated bundle service used by AuthBridge clients to fetch authorization bundles.
 
-This service is deployed using the manifests in `kagenti-operator/config/bundleservice/` and is intended for SRE operational use.
+This service is deployed using the manifests in `operator/config/bundleservice/` and is intended for SRE operational use.
 
 Key facts:
 
@@ -109,7 +109,7 @@ Key facts:
 - Port: `8080`
 - Health endpoints: `/healthz`, `/readyz`
 
-Use `kagenti-operator/kagenti-operator/cmd/bundle-service/README.md` for SRE runbook guidance and operational details.
+Use `operator/operator/cmd/bundle-service/README.md` for SRE runbook guidance and operational details.
 
 ## Quick Start
 
@@ -122,26 +122,26 @@ Use `kagenti-operator/kagenti-operator/cmd/bundle-service/README.md` for SRE run
 
 **Option A — OpenShift (recommended for OCP)**
 
-Use [`scripts/ocp/setup-kagenti.sh`](https://github.com/kagenti/kagenti/blob/main/scripts/ocp/setup-kagenti.sh) from the [kagenti](https://github.com/kagenti/kagenti) repo. It handles RBAC, SCCs, and Helm installation in one step.
+Use [`scripts/ocp/setup-rossoctl.sh`](https://github.com/rossoctl/rossoctl/blob/main/scripts/ocp/setup-rossoctl.sh) from the [rossoctl](https://github.com/rossoctl/rossoctl) repo. It handles RBAC, SCCs, and Helm installation in one step.
 
-By default the script installs the released operator version pinned as a chart dependency in the `kagenti` repo's `charts/kagenti/Chart.yaml`. For development with a local build of this operator, two flags let you override that:
+By default the script installs the released operator version pinned as a chart dependency in the `rossoctl` repo's `charts/rossoctl/Chart.yaml`. For development with a local build of this operator, two flags let you override that:
 
 ```bash
 # Use a local chart and/or a custom operator image instead of the released version
-./scripts/ocp/setup-kagenti.sh \
-  --operator-repo /path/to/kagenti-operator \
-  --operator-image quay.io/<your-org>/kagenti-operator:dev
+./scripts/ocp/setup-rossoctl.sh \
+  --operator-repo /path/to/operator \
+  --operator-image quay.io/<your-org>/operator:dev
 ```
 
-`--operator-repo` accepts a local clone of this repository and substitutes its `charts/kagenti-operator` chart in place of the pinned dependency. `--operator-image` overrides the container image the chart pulls.
+`--operator-repo` accepts a local clone of this repository and substitutes its `charts/operator` chart in place of the pinned dependency. `--operator-image` overrides the container image the chart pulls.
 
 **Option B — Plain Kubernetes (Helm)**
 
 ```bash
 # Install the operator using OCI chart
-helm install kagenti-operator \
-  oci://ghcr.io/kagenti/kagenti-operator/kagenti-operator-chart \
-  --namespace kagenti-system \
+helm install rossoctl-operator \
+  oci://ghcr.io/rossoctl/operator/operator-chart \
+  --namespace rossoctl-system \
   --create-namespace
 ```
 
@@ -163,7 +163,7 @@ metadata:
   namespace: default
   labels:
     app.kubernetes.io/name: weather-agent
-    protocol.kagenti.io/a2a: ""
+    protocol.rossoctl.io/a2a: ""
 spec:
   replicas: 1
   selector:
@@ -176,7 +176,7 @@ spec:
     spec:
       containers:
       - name: agent
-        image: "ghcr.io/kagenti/agent-examples/weather_service:v0.0.1-alpha.3"
+        image: "ghcr.io/rossoctl/examples/weather_service:v0.0.1-alpha.3"
         ports:
         - containerPort: 8000
         env:
@@ -199,7 +199,7 @@ EOF
 
 # Enroll it with an AgentRuntime CR
 kubectl apply -f - <<EOF
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentRuntime
 metadata:
   name: weather-agent-runtime
@@ -213,7 +213,7 @@ spec:
 EOF
 ```
 
-The operator will apply `kagenti.io/type: agent` labels and inject AuthBridge sidecars. The `protocol.kagenti.io/a2a` label on the Deployment triggers automatic AgentCard creation for agent discovery.
+The operator will apply `rossoctl.io/type: agent` labels and inject AuthBridge sidecars. The `protocol.rossoctl.io/a2a` label on the Deployment triggers automatic AgentCard creation for agent discovery.
 
 #### Option 2: Manual Labels
 
@@ -228,8 +228,8 @@ metadata:
   namespace: default
   labels:
     app.kubernetes.io/name: weather-agent
-    kagenti.io/type: agent
-    protocol.kagenti.io/a2a: ""
+    rossoctl.io/type: agent
+    protocol.rossoctl.io/a2a: ""
 spec:
   replicas: 1
   selector:
@@ -239,11 +239,11 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: weather-agent
-        kagenti.io/type: agent
+        rossoctl.io/type: agent
     spec:
       containers:
       - name: agent
-        image: "ghcr.io/kagenti/agent-examples/weather_service:v0.0.1-alpha.3"
+        image: "ghcr.io/rossoctl/examples/weather_service:v0.0.1-alpha.3"
         ports:
         - containerPort: 8000
         env:
@@ -273,25 +273,25 @@ kubectl logs -l app.kubernetes.io/name=weather-agent
 
 | Topic | Link |
 |-------|------|
-| **Getting Started** | [Tutorials & End-to-End Walkthrough](./kagenti-operator/GETTING_STARTED.md) |
-| **API Reference** | [CRD Specifications & Examples](./kagenti-operator/docs/api-reference.md) |
-| **Architecture** | [Operator Design & Components](./kagenti-operator/docs/architecture.md) |
-| **AuthBridge Webhook** | [Sidecar Injection & Configuration](./kagenti-operator/docs/authbridge-webhook.md) |
-| **Controller-Webhook Interaction** | [AgentRuntime Controller & Webhook Coordination](./kagenti-operator/docs/controller-webhook-interaction.md) |
-| **Dynamic Discovery** | [Agent Discovery with AgentCard](./kagenti-operator/docs/dynamic-agent-discovery.md) |
-| **Signature Verification** | [A2A AgentCard Signature Verification](./kagenti-operator/docs/agentcard-signature-verification.md) |
-| **Identity Binding** | [SPIFFE Workload Identity Binding](./kagenti-operator/docs/agentcard-identity-binding.md) |
-| **MLflow Integration** | [MLflow Tracing & Experiment Tracking](./kagenti-operator/docs/mlflow-integration.md) |
-| **Client Registration** | [Operator-Managed Keycloak Registration](./kagenti-operator/docs/operator-managed-client-registration.md) |
-| **Developer Guide** | [Contributing & Development](./kagenti-operator/docs/dev.md) |
+| **Getting Started** | [Tutorials & End-to-End Walkthrough](./operator/GETTING_STARTED.md) |
+| **API Reference** | [CRD Specifications & Examples](./operator/docs/api-reference.md) |
+| **Architecture** | [Operator Design & Components](./operator/docs/architecture.md) |
+| **AuthBridge Webhook** | [Sidecar Injection & Configuration](./operator/docs/authbridge-webhook.md) |
+| **Controller-Webhook Interaction** | [AgentRuntime Controller & Webhook Coordination](./operator/docs/controller-webhook-interaction.md) |
+| **Dynamic Discovery** | [Agent Discovery with AgentCard](./operator/docs/dynamic-agent-discovery.md) |
+| **Signature Verification** | [A2A AgentCard Signature Verification](./operator/docs/agentcard-signature-verification.md) |
+| **Identity Binding** | [SPIFFE Workload Identity Binding](./operator/docs/agentcard-identity-binding.md) |
+| **MLflow Integration** | [MLflow Tracing & Experiment Tracking](./operator/docs/mlflow-integration.md) |
+| **Client Registration** | [Operator-Managed Keycloak Registration](./operator/docs/operator-managed-client-registration.md) |
+| **Developer Guide** | [Contributing & Development](./operator/docs/dev.md) |
 
 ## Examples
 
-See the [config/samples](./kagenti-operator/config/samples) directory for AgentRuntime examples:
+See the [config/samples](./operator/config/samples) directory for AgentRuntime examples:
 
-- [`agent_v1alpha1_agentruntime_basic.yaml`](./kagenti-operator/config/samples/agent_v1alpha1_agentruntime_basic.yaml) — Minimal AgentRuntime with type + targetRef
-- [`agent_v1alpha1_agentruntime_full.yaml`](./kagenti-operator/config/samples/agent_v1alpha1_agentruntime_full.yaml) — With SPIFFE trust domain override and OCI skill images
-- [`agent_v1alpha1_agentruntime_tool.yaml`](./kagenti-operator/config/samples/agent_v1alpha1_agentruntime_tool.yaml) — Tool-type workload (MCP server)
+- [`agent_v1alpha1_agentruntime_basic.yaml`](./operator/config/samples/agent_v1alpha1_agentruntime_basic.yaml) — Minimal AgentRuntime with type + targetRef
+- [`agent_v1alpha1_agentruntime_full.yaml`](./operator/config/samples/agent_v1alpha1_agentruntime_full.yaml) — With SPIFFE trust domain override and OCI skill images
+- [`agent_v1alpha1_agentruntime_tool.yaml`](./operator/config/samples/agent_v1alpha1_agentruntime_tool.yaml) — Tool-type workload (MCP server)
 
 ## Contributing
 

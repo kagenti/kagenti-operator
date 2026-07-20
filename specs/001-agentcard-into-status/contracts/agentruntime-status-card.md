@@ -7,7 +7,7 @@ The `status.card` field on the AgentRuntime CRD exposes discovered A2A agent car
 ## CRD Status Extension
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentRuntime
 status:
   phase: Active

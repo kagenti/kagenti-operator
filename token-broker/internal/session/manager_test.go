@@ -8,7 +8,7 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	"github.com/kagenti/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/core"
 )
 
 // FakeClock for testing

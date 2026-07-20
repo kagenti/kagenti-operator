@@ -4,7 +4,7 @@ This guide describes how to migrate from the legacy `Agent` CRD to workload-base
 
 ## Overview
 
-The Kagenti operator is transitioning from the custom `Agent` CRD to standard Kubernetes workloads (Deployments and StatefulSets) for deploying agents. This provides better alignment with Kubernetes best practices and enables more flexible deployment options.
+The Rossoctl operator is transitioning from the custom `Agent` CRD to standard Kubernetes workloads (Deployments and StatefulSets) for deploying agents. This provides better alignment with Kubernetes best practices and enables more flexible deployment options.
 
 ## Migration Timeline
 
@@ -16,7 +16,7 @@ The Kagenti operator is transitioning from the custom `Agent` CRD to standard Ku
 
 ## Prerequisites
 
-- Kagenti operator v2.x or later
+- Rossoctl operator v2.x or later
 - Access to modify workload manifests
 - Understanding of your current Agent CRD configurations
 
@@ -32,7 +32,7 @@ kubectl get agents -A
 
 For each agent, note:
 - Name and namespace
-- Labels (especially `kagenti.io/type` and protocol labels)
+- Labels (especially `rossoctl.io/type` and protocol labels)
 - PodTemplateSpec configuration
 - Service configuration
 
@@ -45,14 +45,14 @@ For each Agent CRD, create a corresponding Deployment or StatefulSet.
 **Before (Agent CRD):**
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: Agent
 metadata:
   name: my-agent
   namespace: default
   labels:
-    kagenti.io/type: agent
-    kagenti.io/agent-protocol: a2a  # Old label
+    rossoctl.io/type: agent
+    rossoctl.io/agent-protocol: a2a  # Old label
 spec:
   podTemplateSpec:
     spec:
@@ -73,8 +73,8 @@ metadata:
   namespace: default
   labels:
     app.kubernetes.io/name: my-agent
-    kagenti.io/type: agent
-    protocol.kagenti.io/a2a: ""  # New multi-protocol label
+    rossoctl.io/type: agent
+    protocol.rossoctl.io/a2a: ""  # New multi-protocol label
 spec:
   replicas: 1
   selector:
@@ -84,7 +84,7 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: my-agent
-        kagenti.io/type: agent
+        rossoctl.io/type: agent
     spec:
       containers:
         - name: agent
@@ -112,7 +112,7 @@ If you have manually created AgentCards using the `selector` field, migrate them
 **Before (selector-based):**
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentCard
 metadata:
   name: my-agent-card
@@ -121,13 +121,13 @@ spec:
   selector:
     matchLabels:
       app.kubernetes.io/name: my-agent
-      kagenti.io/type: agent
+      rossoctl.io/type: agent
 ```
 
 **After (targetRef-based):**
 
 ```yaml
-apiVersion: agent.kagenti.dev/v1alpha1
+apiVersion: agent.rossoctl.dev/v1alpha1
 kind: AgentCard
 metadata:
   name: my-agent-card
@@ -178,8 +178,8 @@ Update your labels to use the new multi-protocol format:
 
 | Old Label | New Label |
 |-----------|-----------|
-| `kagenti.io/agent-protocol: a2a` | `protocol.kagenti.io/a2a: ""` |
-| `kagenti.io/protocol: a2a` | `protocol.kagenti.io/a2a: ""` |
+| `rossoctl.io/agent-protocol: a2a` | `protocol.rossoctl.io/a2a: ""` |
+| `rossoctl.io/protocol: a2a` | `protocol.rossoctl.io/a2a: ""` |
 
 Both old label formats are still supported for backward compatibility, but they will be removed in a future release. The new prefix-based format allows a single workload to declare support for multiple protocols simultaneously.
 
@@ -187,8 +187,8 @@ Both old label formats are still supported for backward compatibility, but they 
 
 | Label | Value | Required |
 |-------|-------|----------|
-| `kagenti.io/type` | `agent` | Yes |
-| `protocol.kagenti.io/<name>` | `""` (existence implies support) | Yes (at least one) |
+| `rossoctl.io/type` | `agent` | Yes |
+| `protocol.rossoctl.io/<name>` | `""` (existence implies support) | Yes (at least one) |
 | `app.kubernetes.io/name` | `<agent-name>` | Recommended |
 
 ## AgentCard Naming Convention
@@ -237,8 +237,8 @@ Ensure your Deployment has the required labels:
 ```yaml
 metadata:
   labels:
-    kagenti.io/type: agent
-    kagenti.io/protocol: a2a  # or mcp, etc.
+    rossoctl.io/type: agent
+    rossoctl.io/protocol: a2a  # or mcp, etc.
 ```
 
 ### AgentCard shows "WorkloadNotFound"
@@ -246,7 +246,7 @@ metadata:
 Check that:
 1. The `targetRef` in the AgentCard points to the correct workload
 2. The workload exists in the same namespace as the AgentCard
-3. The workload has the `kagenti.io/type: agent` label
+3. The workload has the `rossoctl.io/type: agent` label
 
 ### Deprecation warnings in logs
 
@@ -255,8 +255,8 @@ If you see deprecation warnings, update your configuration:
 1. **"AgentCard uses deprecated 'selector' field"**
    - Migrate to `targetRef` as shown in Step 3
 
-2. **"workload uses deprecated label 'kagenti.io/agent-protocol'"**
-   - Update to `kagenti.io/protocol`
+2. **"workload uses deprecated label 'rossoctl.io/agent-protocol'"**
+   - Update to `rossoctl.io/protocol`
 
 ## Rollback
 
@@ -276,5 +276,5 @@ The operator supports running in hybrid mode indefinitely, so you can migrate gr
 ## Support
 
 For questions or issues:
-- Open an issue at https://github.com/kagenti/operator/issues
+- Open an issue at https://github.com/rossoctl/operator/issues
 - Refer to the full migration plan in the project documentation.

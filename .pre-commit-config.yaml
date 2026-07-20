@@ -6,7 +6,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-added-large-files
         args: ['--maxkb=1024']
-        exclude: ^kagenti-operator/bin/
+        exclude: ^operator/bin/
       - id: check-yaml
         args: ['--allow-multiple-documents']
         # Exclude Helm templates as they contain Go template syntax
@@ -32,30 +32,30 @@ repos:
 
   - repo: local
     hooks:
-      # Kagenti Operator hooks
+      # Rossoctl Operator hooks
       - id: go-fmt
         name: go-fmt
-        entry: bash -c 'cd kagenti-operator && go fmt ./...'
+        entry: bash -c 'cd rossoctl-operator && go fmt ./...'
         language: system
-        files: ^kagenti-operator/.*\.go$
+        files: ^operator/.*\.go$
         pass_filenames: false
       - id: go-vet
         name: go-vet
-        entry: bash -c 'cd kagenti-operator && go vet ./...'
+        entry: bash -c 'cd rossoctl-operator && go vet ./...'
         language: system
-        files: ^kagenti-operator/.*\.go$
+        files: ^operator/.*\.go$
         pass_filenames: false
       - id: go-mod-tidy
         name: go-mod-tidy
-        entry: bash -c 'cd kagenti-operator && go mod tidy'
+        entry: bash -c 'cd rossoctl-operator && go mod tidy'
         language: system
-        files: ^kagenti-operator/(go\.mod|go\.sum)$
+        files: ^operator/(go\.mod|go\.sum)$
         pass_filenames: false
 
       # Kubernetes YAML validation
       - id: k8s-yaml-validate
         name: validate k8s yamls
-        entry: bash -c 'find kagenti-operator/config -name "*.yaml" -not -path "*/samples/*" -exec kubectl --dry-run=client apply -f {} \;'
+        entry: bash -c 'find operator/config -name "*.yaml" -not -path "*/samples/*" -exec kubectl --dry-run=client apply -f {} \;'
         language: system
-        files: ^kagenti-operator/config/.*\.yaml$
+        files: ^operator/config/.*\.yaml$
         pass_filenames: false

@@ -7,12 +7,12 @@
     "assessment_timestamp_human": "May 12, 2026 at 9:19 AM",
     "executed_by": "rhuss@rhuss-mac",
     "command": "/Users/rhuss/.cache/uv/archive-v0/-sEsvpNoWBP_t22eeb_V-/bin/agentready -- assess .",
-    "working_directory": "/Users/rhuss/Development/ai/kagenti-operator"
+    "working_directory": "/Users/rhuss/Development/ai/operator"
   },
   "repository": {
-    "path": "/Users/rhuss/Development/ai/kagenti-operator",
-    "name": "kagenti-operator",
-    "url": "git@github.com:rhuss/kagenti-operator.git",
+    "path": "/Users/rhuss/Development/ai/operator",
+    "name": "rossoctl-operator",
+    "url": "git@github.com:rhuss/operator.git",
     "branch": "main",
     "commit_hash": "01f875a573b9cfc13eacc29e4604c71def861880",
     "languages": {
@@ -86,7 +86,7 @@
       "measured_value": "present",
       "threshold": "present",
       "evidence": [
-        "CLAUDE.md found at /Users/rhuss/Development/ai/kagenti-operator/CLAUDE.md"
+        "CLAUDE.md found at /Users/rhuss/Development/ai/operator/CLAUDE.md"
       ],
       "remediation": null,
       "error_message": null
@@ -584,7 +584,7 @@
       "threshold": "<5% files >500 lines, 0 files >1000 lines",
       "evidence": [
         "Found 8 files >1000 lines (8.2% of 97 files)",
-        "Largest: kagenti-operator/internal/controller/agentcard_controller.go (1299 lines)"
+        "Largest: operator/internal/controller/agentcard_controller.go (1299 lines)"
       ],
       "remediation": {
         "summary": "Refactor large files into smaller, focused modules",

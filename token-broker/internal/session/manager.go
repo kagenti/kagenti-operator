@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kagenti/token-broker/internal/core"
+	"github.com/rossoctl/token-broker/internal/core"
 )
 
 // SessionManager manages OAuth sessions and their lifecycle.

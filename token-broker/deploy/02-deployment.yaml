@@ -10,7 +10,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: token-broker
-  namespace: kagenti-system
+  namespace: rossoctl-system
   labels:
     app: token-broker
 spec:
@@ -62,9 +62,9 @@ spec:
             # JWT_ISSUER:   Expected issuer claim in incoming JWTs.
             # JWT_AUDIENCE: Comma-separated expected audience(s).
             # - name: JWT_JWKS_URL
-            #   value: "https://keycloak.example.com/realms/kagenti/protocol/openid-connect/certs"
+            #   value: "https://keycloak.example.com/realms/rossoctl/protocol/openid-connect/certs"
             # - name: JWT_ISSUER
-            #   value: "https://keycloak.example.com/realms/kagenti"
+            #   value: "https://keycloak.example.com/realms/rossoctl"
             # - name: JWT_AUDIENCE
             #   value: "token-broker"
             # Optional tunables (defaults in cmd/token-broker/main.go):
@@ -87,7 +87,7 @@ spec:
             - name: RESOURCE_CONFIG
               value: >-
                 {
-                  "http://mcp-server-service.kagenti-demo.svc.cluster.local:8184": {"scopes": ["read:user", "user:email"]}
+                  "http://mcp-server-service.rossoctl-demo.svc.cluster.local:8184": {"scopes": ["read:user", "user:email"]}
                 }
           livenessProbe:
             httpGet:

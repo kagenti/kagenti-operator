@@ -1,11 +1,11 @@
-module github.com/kagenti/token-broker
+module github.com/rossoctl/token-broker
 
 go 1.26.0
 
 require (
 	github.com/go-chi/chi/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/kagenti/kagenti-extensions/authbridge/authlib v0.0.0-20260619001334-ce3417655ee8
+	github.com/rossoctl/rossocortex/authbridge/authlib v0.0.0-20260619001334-ce3417655ee8
 	github.com/stretchr/testify v1.10.0
 )
 

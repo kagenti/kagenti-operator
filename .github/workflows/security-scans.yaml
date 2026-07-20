@@ -210,7 +210,7 @@ jobs:
           scan-type: 'config'
           scan-ref: '.'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          skip-dirs: 'kagenti-operator/demos'
+          skip-dirs: 'operator/demos'
           exit-code: '0'
           format: 'table'
 
