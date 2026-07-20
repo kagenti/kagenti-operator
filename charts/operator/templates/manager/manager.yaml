@@ -193,7 +193,7 @@ spec:
             {{- end }}
         {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
         - name: spiffe-helper
-          image: ghcr.io/rossoctl/rossocortex/spiffe-helper:latest
+          image: ghcr.io/rossoctl/cortex/spiffe-helper:latest
           imagePullPolicy: IfNotPresent
           args:
             - "-config"

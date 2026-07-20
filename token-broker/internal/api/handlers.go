@@ -10,7 +10,7 @@ import (
 	"net/url"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/rossoctl/rossocortex/authbridge/authlib/plugins/jwtvalidation/validation"
+	"github.com/rossoctl/cortex/authbridge/authlib/plugins/jwtvalidation/validation"
 	"github.com/rossoctl/token-broker/internal/auth"
 	"github.com/rossoctl/token-broker/internal/core"
 )

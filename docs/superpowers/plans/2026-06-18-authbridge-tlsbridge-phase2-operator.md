@@ -4,17 +4,17 @@
 
 **Goal:** Make the AuthBridge TLS bridge work end-to-end on operator-deployed agents — the operator provisions a per-agent cert-manager CA, mounts the signing key into the sidecar and the trust cert + trust env into the agent, and renders the `tls_bridge:` config block — so a real agent's outbound HTTPS is decrypted into the pipeline, gated behind an off-by-default `tlsBridgeMode`.
 
-**Architecture:** A new `tlsBridgeMode: disabled|enabled` field on the `AgentRuntime` CRD, resolved CR→namespace→default exactly like `mtlsMode`. When `enabled` (and feature-gated on, and cert-manager present, and `authBridgeMode ∈ {proxy-sidecar, lite}`), a new per-agent CA reconciler creates a SelfSigned `Issuer` + a CA `Certificate` (`isCA: true`, **no Name Constraints**) → a Secret. The mutating webhook hard-mounts `tls.crt`/`tls.key` into the sidecar (mode `0440`) and `ca.crt` + trust env into the agent, and renders `tls_bridge: {mode: enabled, ca_dir: /etc/authbridge/tls-bridge-ca}` into the per-agent config (consolidated schema, rossocortex#522 — no scope/ca_source/cert-paths). The `:9094` session-API localhost-bind (it now carries decrypted bodies) already shipped authbridge-side in #522, so the operator PR carries no extensions work; raw-body redaction is a deferred follow-up.
+**Architecture:** A new `tlsBridgeMode: disabled|enabled` field on the `AgentRuntime` CRD, resolved CR→namespace→default exactly like `mtlsMode`. When `enabled` (and feature-gated on, and cert-manager present, and `authBridgeMode ∈ {proxy-sidecar, lite}`), a new per-agent CA reconciler creates a SelfSigned `Issuer` + a CA `Certificate` (`isCA: true`, **no Name Constraints**) → a Secret. The mutating webhook hard-mounts `tls.crt`/`tls.key` into the sidecar (mode `0440`) and `ca.crt` + trust env into the agent, and renders `tls_bridge: {mode: enabled, ca_dir: /etc/authbridge/tls-bridge-ca}` into the per-agent config (consolidated schema, cortex#522 — no scope/ca_source/cert-paths). The `:9094` session-API localhost-bind (it now carries decrypted bodies) already shipped authbridge-side in #522, so the operator PR carries no extensions work; raw-body redaction is a deferred follow-up.
 
-**Tech Stack:** Go 1.x (rossoctl-operator, kubebuilder/controller-runtime), cert-manager Go API `github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1` (v1.20.2, already vendored + scheme-registered), `k8s.io/utils/ptr`. Phase-1 AuthBridge code (rossocortex PR #522) is the **prerequisite** — the rendered `tls_bridge:` block is only understood by the post-#522 authbridge image.
+**Tech Stack:** Go 1.x (rossoctl-operator, kubebuilder/controller-runtime), cert-manager Go API `github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1` (v1.20.2, already vendored + scheme-registered), `k8s.io/utils/ptr`. Phase-1 AuthBridge code (cortex PR #522) is the **prerequisite** — the rendered `tls_bridge:` block is only understood by the post-#522 authbridge image.
 
 **Locked decisions (from brainstorming):**
 1. CRD `tlsBridgeMode: disabled|enabled` maps 1:1 to `tls_bridge.mode`; `envoy-sidecar` + `enabled` ⇒ validating-webhook reject. (The authbridge schema was consolidated in #522: no scope/external — `enabled` intercepts all eligible on the configured ports.)
 2. **Unconstrained** per-agent CA (no X.509 Name Constraints). Containment = per-agent isolation + sidecar-only `0440` key + rotation. (Avoids the cert-manager `NameConstraints` feature-gate dependency entirely.)
 3. Fully **decoupled** from SPIRE/mTLS. Hard deps only: `authBridgeMode ∈ {proxy-sidecar, lite}` + cert-manager installed.
-   - **Cross-repo dependency for true SPIRE-free operation (added post-implementation, verified e2e):** the operator alone does not achieve this. The rossoctl chart renders an empty `spiffe: {}` into every agent's base config, and the pre-fix authbridge binary built the SPIFFE provider on mere presence of that block → `NewX509Source` blocked forever when no SPIRE socket was mounted. SPIRE-free boot therefore requires **rossocortex #523** (need-driven SPIFFE provider: build only when mTLS or a `identity.type=spiffe` plugin consumes it). On the operator side, `applyTLSBridgeMounts` now calls `ensureFSGroup` **unconditionally** (not only under `spireEnabled`) so the non-root sidecar can read the `0440` CA Secret without SPIRE — see the `0440`/`FSGroup=0` note below, which previously held only on the SPIRE path.
+   - **Cross-repo dependency for true SPIRE-free operation (added post-implementation, verified e2e):** the operator alone does not achieve this. The rossoctl chart renders an empty `spiffe: {}` into every agent's base config, and the pre-fix authbridge binary built the SPIFFE provider on mere presence of that block → `NewX509Source` blocked forever when no SPIRE socket was mounted. SPIRE-free boot therefore requires **cortex #523** (need-driven SPIFFE provider: build only when mTLS or a `identity.type=spiffe` plugin consumes it). On the operator side, `applyTLSBridgeMounts` now calls `ensureFSGroup` **unconditionally** (not only under `spireEnabled`) so the non-root sidecar can read the `0440` CA Secret without SPIRE — see the `0440`/`FSGroup=0` note below, which previously held only on the SPIRE path.
 
-**Spec:** `rossocortex/authbridge/docs/superpowers/specs/2026-06-12-authbridge-tlsbridge-design.md` (Phase 2 section). **Phase 1 plan:** `rossocortex/authbridge/docs/superpowers/plans/2026-06-17-authbridge-tlsbridge-phase1.md`.
+**Spec:** `cortex/authbridge/docs/superpowers/specs/2026-06-12-authbridge-tlsbridge-design.md` (Phase 2 section). **Phase 1 plan:** `cortex/authbridge/docs/superpowers/plans/2026-06-17-authbridge-tlsbridge-phase1.md`.
 
 ---
 
@@ -56,7 +56,7 @@ All operator paths under `operator/operator/` unless noted. Verified 2026-06-18.
 - `cmd/main.go` — register the reconciler (gated).
 - RBAC marker on the new reconciler + `config/rbac/role.yaml` + `charts/operator/templates/rbac/role.yaml`.
 
-**rossocortex:** none required for this PR. The `:9094` localhost-bind already
+**cortex:** none required for this PR. The `:9094` localhost-bind already
 shipped in #522 (`config.Load` rewrites `session_api_addr` to loopback when
 `tls_bridge.mode=enabled`). Raw-body redaction is a deferred follow-up, not a Phase-2 blocker.
 
@@ -78,7 +78,7 @@ git fetch origin main   # or upstream main, per your remote
 git checkout -b feat/tlsbridge-phase2 origin/main
 ```
 
-(All operator work happens here. No rossocortex changes are needed — the `:9094` localhost-bind already landed in #522.)
+(All operator work happens here. No cortex changes are needed — the `:9094` localhost-bind already landed in #522.)
 
 ---
 
@@ -338,7 +338,7 @@ git commit -s -m "feat(tlsbridge): reject tlsBridgeMode=enabled with envoy-sidec
 
 This reconciler watches `AgentRuntime`. When the resolved mode is `enabled` AND the feature gate is on AND cert-manager is present, it ensures (per agent): a namespace SelfSigned `Issuer` (shared, name `authbridge-tls-bridge-selfsigned`) and a CA `Certificate` (`isCA: true`, `secretName: <agent>-tls-bridge-ca`, **no nameConstraints**) owned by the AgentRuntime. cert-manager then issues the Secret (`tls.crt`/`tls.key`/`ca.crt`). The hard pod-mount (Task 7) blocks pod start until that Secret exists — solving the ordering race.
 
-> **Contract with authbridge `FileSource` (rossocortex#522).** The bridge's
+> **Contract with authbridge `FileSource` (cortex#522).** The bridge's
 > `NewFileSource` now *validates* the mounted Secret at boot and **fails loud** if the
 > cert is not a CA (`IsCA=false` / missing `KeyUsageCertSign`) or if cert/key don't match.
 > So the `Certificate` below MUST keep `IsCA: true` **and** `Usages` including
@@ -550,7 +550,7 @@ Run: `cd rossoctl-operator && go test ./internal/webhook/injector/ -run TestEnsu
 
 ```go
 	if tlsBridgeMode == TLSBridgeModeEnabled {
-		// Consolidated schema (rossocortex#522): mode + ca_dir only.
+		// Consolidated schema (cortex#522): mode + ca_dir only.
 		// ca_dir = the mounted cert-manager Secret (tls.crt/tls.key/ca.crt by
 		// convention). No scope/ca_source/cert+key paths.
 		cfg["tls_bridge"] = map[string]interface{}{
@@ -785,7 +785,7 @@ git commit -s -m "test(tlsbridge): e2e — operator-provisioned CA decrypts agen
 
 The operator renders a `tls_bridge:` block only the post-#522 authbridge image understands (the `:9094` localhost-bind + `FileSource` validation are already in #522). So:
 
-1. **rossocortex**: merge PR #522 → tag a new `v0.x.0-alpha.N` authbridge/proxy-init image.
+1. **cortex**: merge PR #522 → tag a new `v0.x.0-alpha.N` authbridge/proxy-init image.
 2. **rossoctl-operator**: merge this Phase-2 PR → tag `v0.x.0-alpha.M`.
 3. **rossoctl**: bump the chart pins (operator image + authbridge sidecar images) to the new tags; this is where it becomes installable. Same operator→extensions→rossoctl order as the alpha.9 release.
 

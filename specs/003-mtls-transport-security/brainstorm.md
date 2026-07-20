@@ -58,15 +58,15 @@ Istio, user-supplied certificates, and cert-manager are explicitly out of scope.
 
 **Answer: spiffe-helper sidecar (file-based, option a).** A spiffe-helper container fetches SVIDs from SPIRE and writes them as PEM files (`svid.pem`, `svid_key.pem`, `bundle.pem`) to a shared volume. The proxy reads these files and reloads on change. This is already implemented and deployed.
 
-**Why not go-spiffe SDK directly in the proxy (option b)?** Option (b) eliminates the spiffe-helper container and keeps certs in memory, but it ties the proxy to SPIRE's Workload API. Option (a) keeps the proxy certificate-source-agnostic — it reads PEM files regardless of where they came from. This preserves the sidecar-agnostic constraint and works across all authbridge modes. Option (b) is the long-term direction per `rossocortex#332` but is deferred.
+**Why not go-spiffe SDK directly in the proxy (option b)?** Option (b) eliminates the spiffe-helper container and keeps certs in memory, but it ties the proxy to SPIRE's Workload API. Option (a) keeps the proxy certificate-source-agnostic — it reads PEM files regardless of where they came from. This preserves the sidecar-agnostic constraint and works across all authbridge modes. Option (b) is the long-term direction per `cortex#332` but is deferred.
 
 ### Q7: What happens when mTLS is enabled but SPIRE is not deployed?
 
 **Answer: Fail clearly (option b).** If mTLS is the default and SPIRE isn't available, set the AgentRuntime to an error state with a clear condition. The operator must either deploy SPIRE or explicitly set `mTLSMode: disabled`. No silent fallback to plain HTTP — that would mask a real security gap.
 
-### Q8: Should this spec cover authbridge code changes in rossocortex?
+### Q8: Should this spec cover authbridge code changes in cortex?
 
-**Answer: Yes — cover both repos.** This spec defines the work required in both `rossoctl-operator` (controller, CRD, webhook) and `rossocortex` (authbridge proxy TLS contexts). The spec captures what needs to change in authbridge to enable mTLS (DownstreamTlsContext, UpstreamTlsContext, certificate loading). Downstreaming logistics (how to bring authbridge code into the product build) are explicitly out of scope — that's a separate spike.
+**Answer: Yes — cover both repos.** This spec defines the work required in both `rossoctl-operator` (controller, CRD, webhook) and `cortex` (authbridge proxy TLS contexts). The spec captures what needs to change in authbridge to enable mTLS (DownstreamTlsContext, UpstreamTlsContext, certificate loading). Downstreaming logistics (how to bring authbridge code into the product build) are explicitly out of scope — that's a separate spike.
 
 ### Q5: Istio integration?
 
@@ -144,9 +144,9 @@ Istio, user-supplied certificates, and cert-manager are explicitly out of scope.
 - **AgentCardReconciler**: has `EnableVerifiedFetch`, `AuthenticatedFetcher`, SVID expiry grace period, signature verification
 - **AgentCardNetworkPolicyReconciler**: creates NetworkPolicies based on signature verification (to be replaced by policy enforcement from AgentRuntime)
 
-## Authbridge (rossocortex) Current State
+## Authbridge (cortex) Current State
 
-The authbridge in `rossocortex` already has significant mTLS infrastructure:
+The authbridge in `cortex` already has significant mTLS infrastructure:
 
 ### Existing mTLS Code
 
