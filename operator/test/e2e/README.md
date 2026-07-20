@@ -15,7 +15,7 @@ End-to-end tests for the rossoctl-operator. The suite runs 25 specs:
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) — `brew install kubectl`
 - Container runtime: **Docker** or **Podman**
 
-The test suite auto-detects Docker vs Podman. No env vars needed. AuthBridge sidecar images (`authbridge-envoy`, `proxy-init`, `spiffe-helper`) are pulled from `ghcr.io/rossoctl/rossocortex` and loaded into Kind during setup.
+The test suite auto-detects Docker vs Podman. No env vars needed. AuthBridge sidecar images (`authbridge-envoy`, `proxy-init`, `spiffe-helper`) are pulled from `ghcr.io/rossoctl/cortex` and loaded into Kind during setup.
 
 ## Run
 

@@ -30,7 +30,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/rossoctl/rossocortex/authbridge/authlib/plugins/jwtvalidation/validation"
+	"github.com/rossoctl/cortex/authbridge/authlib/plugins/jwtvalidation/validation"
 	"github.com/rossoctl/token-broker/internal/api"
 	"github.com/rossoctl/token-broker/internal/cache"
 	"github.com/rossoctl/token-broker/internal/core"

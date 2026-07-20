@@ -144,7 +144,7 @@ That shape is intentional for this controller:
 1. **Upgrade rossoctl-operator** to a version that includes the AuthBridge webhook and ClientRegistration controller.
 2. **Enable the webhook** via Helm values (`webhook.enable: true`) and optionally `--enable-operator-client-registration`.
 3. **Configure** `--spire-trust-domain` if agent namespaces use SPIRE.
-4. **Remove the rossocortex webhook** chart dependency from the umbrella chart once the operator webhook is verified.
+4. **Remove the cortex webhook** chart dependency from the umbrella chart once the operator webhook is verified.
 
 Since both the webhook and controller ship in the same binary, there is no ordering concern between them.
 
@@ -173,7 +173,7 @@ Switching from **sidecar** to **operator** registration may change the **client 
 
 The webhook and operator now live in one repository (`rossoctl-operator`). This document is the single **source of truth** for the contract. Constants are co-located in the `internal/webhook/injector` package to avoid drift between annotation/label keys.
 
-The webhook was previously part of `rossocortex`; migration tracking is in [rossocortex#266](https://github.com/rossoctl/rossocortex/issues/266).
+The webhook was previously part of `cortex`; migration tracking is in [cortex#266](https://github.com/rossoctl/cortex/issues/266).
 
 ---
 

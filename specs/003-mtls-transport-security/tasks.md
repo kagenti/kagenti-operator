@@ -146,12 +146,12 @@ The following are already implemented and do NOT need new code:
 
 ---
 
-## Phase 7: Authbridge Verification (rossocortex)
+## Phase 7: Authbridge Verification (cortex)
 
 **Purpose**: Verify authbridge mTLS is complete and matches operator expectations
 
 - [x] T019 [DONE] Envoy mTLS wiring confirmed — webhook injector has `MTLSEnabled`, `MTLSPermissive`, `MTLSStrict` template fields driving envoy TLS contexts.
-- [ ] T020 [P] Verify the `cfg.MTLS` config schema in `authbridge/authlib/config/config.go` matches what the operator generates. Specifically: does the authbridge expect `mtls:\n  mode: permissive` or a different shape? Clone `rossocortex` and check.
+- [ ] T020 [P] Verify the `cfg.MTLS` config schema in `authbridge/authlib/config/config.go` matches what the operator generates. Specifically: does the authbridge expect `mtls:\n  mode: permissive` or a different shape? Clone `cortex` and check.
 - [ ] T021 Add mTLS integration tests (if not already present in authbridge). Test: (a) permissive accepts TLS + plaintext; (b) strict rejects plaintext; (c) cert rotation.
 
 **Checkpoint**: Authbridge config contract verified.

@@ -7,7 +7,7 @@
 # with webhook, cert-manager, and metrics enabled. It:
 #   1. Detects container runtime (docker/podman)
 #   2. Builds the operator image with ko and loads into Kind
-#   3. Disables the old rossoctl-webhook MWC from rossocortex
+#   3. Disables the old rossoctl-webhook MWC from cortex
 #   4. Ensures CRDs are installed (Helm skips crds/ on upgrade)
 #   5. Cleans up immutable RBAC resources (roleRef conflicts)
 #   6. Deploys the operator via Helm with webhook enabled
@@ -487,5 +487,5 @@ echo "    3. Check: kubectl get pod <name> -o jsonpath='{.spec.containers[*].nam
 echo ""
 echo "  To revert to old webhook:"
 echo "    1. Delete operator MWC: kubectl delete mutatingwebhookconfiguration <name>"
-echo "    2. Re-deploy rossocortex chart (restores old MWC)"
+echo "    2. Re-deploy cortex chart (restores old MWC)"
 echo "============================================="

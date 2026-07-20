@@ -57,15 +57,15 @@ var (
 	signerImage = "ghcr.io/rossoctl/operator/agentcard-signer:e2e-test"
 
 	// sidecarImages are the AuthBridge sidecar images to pull and load into Kind.
-	// rossocortex ships two combined images plus proxy-init:
+	// cortex ships two combined images plus proxy-init:
 	//   * authbridge-envoy: envoy-sidecar mode (Envoy + ext_proc + bundled spiffe-helper)
 	//   * authbridge:       proxy-sidecar mode (authbridge-proxy + bundled spiffe-helper)
 	//   * proxy-init:       iptables init container, envoy-sidecar mode only
 	// Spiffe-helper and client-registration are no longer separate images.
 	sidecarImages = []string{
-		"ghcr.io/rossoctl/rossocortex/authbridge-envoy:latest",
-		"ghcr.io/rossoctl/rossocortex/authbridge:latest",
-		"ghcr.io/rossoctl/rossocortex/proxy-init:latest",
+		"ghcr.io/rossoctl/cortex/authbridge-envoy:latest",
+		"ghcr.io/rossoctl/cortex/authbridge:latest",
+		"ghcr.io/rossoctl/cortex/proxy-init:latest",
 	}
 )
 

@@ -31,18 +31,18 @@ func CompiledDefaults() *PlatformConfig {
 		Images: ImageConfig{
 			// authbridge-envoy: combined image for envoy-sidecar mode
 			// (Envoy + ext_proc authbridge + spiffe-helper bundled).
-			EnvoyProxy: "ghcr.io/rossoctl/rossocortex/authbridge-envoy:latest",
+			EnvoyProxy: "ghcr.io/rossoctl/cortex/authbridge-envoy:latest",
 			// authbridge: combined image for proxy-sidecar mode (default
 			// deployment shape) — authbridge-proxy + spiffe-helper
 			// bundled, no Envoy, no gRPC.
-			AuthBridge: "ghcr.io/rossoctl/rossocortex/authbridge:latest",
+			AuthBridge: "ghcr.io/rossoctl/cortex/authbridge:latest",
 			// authbridge-lite: size-optimized variant for the "lite"
 			// mode. Same listener layout as AuthBridge but parsers
 			// (a2a/mcp/inference) are dropped.
-			AuthBridgeLite: "ghcr.io/rossoctl/rossocortex/authbridge-lite:latest",
+			AuthBridgeLite: "ghcr.io/rossoctl/cortex/authbridge-lite:latest",
 			// proxy-init: iptables init container, used by
 			// envoy-sidecar mode only.
-			ProxyInit:  "ghcr.io/rossoctl/rossocortex/proxy-init:latest",
+			ProxyInit:  "ghcr.io/rossoctl/cortex/proxy-init:latest",
 			PullPolicy: corev1.PullIfNotPresent,
 		},
 		Proxy: ProxyConfig{

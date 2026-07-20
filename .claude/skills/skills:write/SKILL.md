@@ -100,12 +100,12 @@ Claude Code auto-approves commands by matching the first token against `.claude/
 ```markdown
 Check pod status:
 ```bash
-kubectl get pods -n kagenti-system
+kubectl get pods -n rossoctl-system
 ```
 
 Check logs:
 ```bash
-kubectl logs -n kagenti-system deployment/kagenti-operator-controller-manager
+kubectl logs -n rossoctl-system deployment/rossoctl-operator-controller-manager
 ```
 ```
 
@@ -117,10 +117,10 @@ Commands targeting management clusters or AWS need user approval anyway, so mult
 
 ### Temporary Files
 
-Skills that download logs, artifacts, or save analysis output should use `/tmp/kagenti-operator/<skill-category>/` as the working directory:
+Skills that download logs, artifacts, or save analysis output should use `/tmp/operator/<skill-category>/` as the working directory:
 
 ```bash
-mkdir -p /tmp/kagenti-operator/rca
+mkdir -p /tmp/operator/rca
 ```
 
 ### Update settings.json

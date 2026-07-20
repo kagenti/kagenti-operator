@@ -71,7 +71,7 @@ The AuthBridge Sidecar calls the Token Broker to obtain OAuth tokens for resourc
 
 **Purpose**: Request an OAuth token for a specific resource server using JWT-based authentication. This call blocks until the token is available or the request times out.
 
-**Called By**: AuthBridge Sidecar (from rossocortex/authbridge)
+**Called By**: AuthBridge Sidecar (from cortex/authbridge)
 
 **Authentication**: JWT Bearer token containing user ID and session key
 

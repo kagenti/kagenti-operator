@@ -1314,7 +1314,7 @@ func TestEnsurePerAgentConfigMap_EmptyBaseYAML_FallbackFromNsConfig(t *testing.T
 	// keycloak_url + keycloak_realm are passed to jwt-validation so the
 	// plugin derives jwks_url from the internal URL. Required for
 	// split-horizon deployments where `issuer` (public) isn't reachable
-	// from inside the pod. See rossocortex#383.
+	// from inside the pod. See cortex#383.
 	if got, want := jwtCfg["keycloak_url"], "http://keycloak:8080"; got != want {
 		t.Errorf("jwt-validation.config.keycloak_url = %v, want %v", got, want)
 	}

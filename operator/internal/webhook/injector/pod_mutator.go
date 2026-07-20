@@ -810,7 +810,7 @@ func perAgentEnvoyConfigMapName(crName string) string {
 //     also passed through so the plugin can derive jwks_url from the
 //     INTERNAL URL — the sidecar actually GETs this URL from inside
 //     the cluster, and the public hostname typically won't resolve
-//     from inside the mesh. See rossocortex#383 for why the
+//     from inside the mesh. See cortex#383 for why the
 //     jwt-validation plugin needs its own copy of these fields.
 //     Other plugin settings fall back to their own defaults —
 //     audience_file=/shared/client-id.txt, bypass_paths=standard

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Enable mTLS as the default transport security for controller-to-agent and agent-to-agent communication. Authbridge mTLS is already implemented in rossocortex across all proxy modes (envoy, proxy-sidecar, lite). The remaining work is operator-side: the controller sets a `rossoctl.io/mtls-mode` annotation on the pod template (triggering rolling restart on change), the webhook reads `mTLSMode` from the AgentRuntime CR and sets `MTLS_MODE` env var on the authbridge container, defaulting `mTLSMode` to `permissive`, wiring `SpiffeFetcher` as the default card fetcher, adding `MTLSReady` status conditions, and deprecating the JWS signing pipeline flags. SPIRE is the sole certificate provider; Istio is out of scope.
+Enable mTLS as the default transport security for controller-to-agent and agent-to-agent communication. Authbridge mTLS is already implemented in cortex across all proxy modes (envoy, proxy-sidecar, lite). The remaining work is operator-side: the controller sets a `rossoctl.io/mtls-mode` annotation on the pod template (triggering rolling restart on change), the webhook reads `mTLSMode` from the AgentRuntime CR and sets `MTLS_MODE` env var on the authbridge container, defaulting `mTLSMode` to `permissive`, wiring `SpiffeFetcher` as the default card fetcher, adding `MTLSReady` status conditions, and deprecating the JWS signing pipeline flags. SPIRE is the sole certificate provider; Istio is out of scope.
 
 ## Technical Context
 
@@ -79,10 +79,10 @@ operator/
     └── integration/                # MODIFY: mTLS integration test
 ```
 
-### Source Code (rossocortex — verification only)
+### Source Code (cortex — verification only)
 
 ```text
-rossocortex/authbridge/
+cortex/authbridge/
 ├── cmd/
 │   ├── authbridge-envoy/main.go    # VERIFY: mTLS wiring exists
 │   ├── authbridge-proxy/main.go    # VERIFIED: mTLS wiring complete

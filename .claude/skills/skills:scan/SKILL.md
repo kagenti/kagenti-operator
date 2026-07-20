@@ -180,10 +180,10 @@ Rate each skill 1-5:
 
 ### Phase 6: Generate Report
 
-Save to `/tmp/kagenti/skills-scan/`:
+Save to `/tmp/rossoctl/skills-scan/`:
 
 ```bash
-mkdir -p /tmp/kagenti/skills-scan
+mkdir -p /tmp/rossoctl/skills-scan
 ```
 
 Output a structured report:

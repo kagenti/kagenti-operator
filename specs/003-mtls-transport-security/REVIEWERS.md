@@ -20,7 +20,7 @@ No breaking changes. Existing deployments without SPIRE get a clear `MTLSReady=F
 
 The implementation leverages heavily what's already built:
 
-- **Authbridge** (rossocortex): mTLS is fully implemented across all proxy modes. No changes needed, only verification.
+- **Authbridge** (cortex): mTLS is fully implemented across all proxy modes. No changes needed, only verification.
 - **Operator**: The main work is (a) changing the `mTLSMode` kubebuilder default to `permissive`, (b) setting `rossoctl.io/mtls-mode` annotation on the pod template, (c) adding `MTLSReady` condition logic, (d) flipping flag defaults, and (e) webhook sets `MTLS_MODE` env var on authbridge container.
 - **SPIRE detection**: The controller checks whether spiffe-helper volume mounts exist in the workload's pod template. If absent while mTLS is enabled, `MTLSReady=False/SPIREUnavailable`.
 - **Rolling restart**: When `mTLSMode` changes, the `rossoctl.io/mtls-mode` annotation on the pod template changes, triggering a Kubernetes rolling restart. This is independent of the platform config hash (per PR #405).

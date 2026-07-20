@@ -60,18 +60,18 @@ Commands target local Kind clusters or test environments.
 
 Check pod status:
 ```bash
-kubectl get pods -n kagenti-system
+kubectl get pods -n rossoctl-system
 ```
 
 Check logs:
 ```bash
-kubectl logs -n kagenti-system deployment/kagenti-operator-controller-manager
+kubectl logs -n rossoctl-system deployment/rossoctl-operator-controller-manager
 ```
 
 ## BAD (chained commands won't match auto-approve patterns)
 
 ```bash
-kubectl get pods -n kagenti-system && kubectl logs -n kagenti-system deployment/kagenti-operator-controller-manager
+kubectl get pods -n rossoctl-system && kubectl logs -n rossoctl-system deployment/rossoctl-operator-controller-manager
 ```
 ```
 

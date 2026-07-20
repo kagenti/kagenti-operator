@@ -26,7 +26,7 @@ All status updates (transport security, attested SPIFFE ID, mTLS readiness condi
 - AgentCard CRD removal — separate migration spec
 - Cross-cluster agent federation — future work
 - Bearer token / OAuth2 authorization — handled by authbridge, orthogonal to mTLS
-- Downstreaming logistics for rossocortex — separate spike
+- Downstreaming logistics for cortex — separate spike
 - Webhook injector changes — existing spiffe-helper injection is sufficient
 
 ## Clarifications
@@ -42,7 +42,7 @@ All status updates (transport security, attested SPIFFE ID, mTLS readiness condi
 
 ## Current State — What Already Exists
 
-### Authbridge (rossocortex) — DONE
+### Authbridge (cortex) — DONE
 
 mTLS is fully implemented in authbridge across all three proxy modes on main:
 
@@ -206,7 +206,7 @@ The controller detects SPIRE availability by checking for the spiffe-helper init
 ## Assumptions
 
 - SPIRE is deployed in the cluster and the SPIRE agent socket is accessible to both the controller pod and agent workload pods.
-- The authbridge mTLS implementation in rossocortex (on main) is stable and tested.
+- The authbridge mTLS implementation in cortex (on main) is stable and tested.
 - Each agent workload has exactly one Pod (one-agent-per-pod model), so pod identity equals agent identity (SPIFFE ID).
 - The spiffe-helper sidecar is already injected by the webhook when `mTLSMode` is non-disabled — no changes to injection logic are needed.
 - The authbridge sidecar supports an `MTLS_MODE` environment variable to configure TLS listener mode at startup.
@@ -224,7 +224,7 @@ The controller detects SPIRE availability by checking for the spiffe-helper init
 | `cmd/main.go` | Default `--enable-verified-fetch` to `true`; default signing flags to `false`; add deprecation log warnings |
 | `config/crd/bases/` | Regenerate CRD manifests if type changes |
 
-### rossocortex (verification + testing)
+### cortex (verification + testing)
 
 | File | Change |
 |------|--------|
