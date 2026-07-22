@@ -3,7 +3,7 @@ controllerManager:
   replicas: 1
   container:
     image:
-      repository: ghcr.io/rossoctl/operator/operator
+      repository: ghcr.io/rossoctl/operator/rossoctl-operator
       tag: __PLACEHOLDER__
       pullPolicy: IfNotPresent
     args:
