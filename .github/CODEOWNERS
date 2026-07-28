@@ -1,21 +1,21 @@
-# CODEOWNERS for rossoctl-operator
+# CODEOWNERS for kagenti-operator
 # See https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # Default: maintainers team owns everything
-* @rossoctl/maintainers
+* @kagenti/maintainers
 
 # API types and CRDs — require careful review
-operator/api/ @rossoctl/maintainers
-operator/config/crd/ @rossoctl/maintainers
+kagenti-operator/api/ @kagenti/maintainers
+kagenti-operator/config/crd/ @kagenti/maintainers
 
 # Controllers and core logic
-operator/internal/ @rossoctl/maintainers
+kagenti-operator/internal/ @kagenti/maintainers
 
 # Webhooks
-operator/internal/webhook/ @rossoctl/maintainers
+kagenti-operator/internal/webhook/ @kagenti/maintainers
 
 # Helm charts
-charts/ @rossoctl/maintainers
+charts/ @kagenti/maintainers
 
 # CI and automation
-.github/ @rossoctl/admins
+.github/ @kagenti/admins

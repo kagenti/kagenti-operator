@@ -9,4 +9,4 @@ permissions:
 
 jobs:
   verify-pr-title:
-    uses: rossoctl/.github/.github/workflows/pr-verifier-required.yml@4e535f2436d167295d39d488ce5c44b5a2d49792
+    uses: kagenti/.github/.github/workflows/pr-verifier-required.yml@4e535f2436d167295d39d488ce5c44b5a2d49792

@@ -10,7 +10,7 @@ on:
 
 defaults:
   run:
-    working-directory: operator
+    working-directory: kagenti-operator
 
 jobs:
   lint:
@@ -20,14 +20,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
-          go-version-file: operator/go.mod
+          go-version-file: kagenti-operator/go.mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a  # v9.3.0
+        uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee  # v9.2.1
         with:
           version: v2.11.4
-          working-directory: operator
+          working-directory: kagenti-operator
           only-new-issues: true
 
   test:
@@ -35,9 +35,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
-          go-version-file: operator/go.mod
+          go-version-file: kagenti-operator/go.mod
       - name: Run tests
         run: |
           go mod tidy
@@ -49,9 +49,9 @@ jobs:
     timeout-minutes: 75
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
-          go-version-file: operator/go.mod
+          go-version-file: kagenti-operator/go.mod
       - name: Install Kind
         run: |
           curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
@@ -60,7 +60,7 @@ jobs:
       - name: Create Kind cluster
         run: kind create cluster
       - name: Set up Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
         with:
           # TODO: unpin when https://github.com/helm/helm/issues/32214 is fixed
           version: v4.2.0
@@ -74,9 +74,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
-          go-version-file: operator/go.mod
+          go-version-file: kagenti-operator/go.mod
       - name: Install Kind
         run: |
           curl -Lo ./kind https://kind.sigs.k8s.io/dl/latest/kind-linux-amd64
@@ -94,8 +94,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16  # v6
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c  # v6
         with:
-          go-version-file: operator/go.mod
+          go-version-file: kagenti-operator/go.mod
       - name: Build
         run: make build

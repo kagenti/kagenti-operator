@@ -13,17 +13,17 @@ updates:
 
 # Go modules
 - package-ecosystem: "gomod"
-  directory: "/operator"
+  directory: "/kagenti-operator"
   schedule:
     interval: "weekly"
 
 # Docker base images
 - package-ecosystem: "docker"
-  directory: "/operator"
+  directory: "/kagenti-operator"
   schedule:
     interval: "weekly"
 
 - package-ecosystem: "docker"
-  directory: "/operator/cmd/agentcard-signer"
+  directory: "/kagenti-operator/cmd/agentcard-signer"
   schedule:
     interval: "weekly"

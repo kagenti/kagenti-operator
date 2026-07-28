@@ -13,7 +13,7 @@ updates:
         update-types: [major]
 
   - package-ecosystem: "gomod"
-    directory: "/operator"
+    directory: "/kagenti-operator"
     schedule:
       interval: "weekly"
     labels:
