@@ -854,7 +854,11 @@ func (r *AgentRuntimeReconciler) evaluateMTLSReady(ctx context.Context, rt *agen
 			r.Recorder.Eventf(rt, nil, corev1.EventTypeWarning, "SPIREUnavailable",
 				"MTLSReadyCheck", msg)
 		}
-		logger.Info("SPIRE not detected for mTLS-enabled workload",
+		// This check only verifies X.509-SVID volumes for mTLS certificate management.
+		// This is expected with Helm-managed SPIRE deployments where volumes aren't
+		// pre-injected. Other SPIRE features like SPIFFE auth (JWT-SVID) still work
+		// as long as SPIRE is installed and the feature is enabled.
+		logger.Info("SPIRE socket volumes not detected (X.509-SVID mTLS unavailable)",
 			"workload", rt.Spec.TargetRef.Name, "mtlsMode", mtlsMode)
 	}
 }
