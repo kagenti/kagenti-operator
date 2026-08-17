@@ -246,10 +246,10 @@ featureGates:
 # proxy-sidecar / lite mode (always-on enforce-redirect egress capture).
 defaults:
   images:
-    envoyProxy: ghcr.io/rossoctl/cortex/authbridge-envoy:latest
-    authbridge: ghcr.io/rossoctl/cortex/authbridge:latest
-    authbridgeLite: ghcr.io/rossoctl/cortex/authbridge-lite:latest
-    proxyInit: ghcr.io/rossoctl/cortex/proxy-init:latest
+    envoyProxy: ghcr.io/rossoctl/cortex/authbridge-envoy:v0.6.0
+    authbridge: ghcr.io/rossoctl/cortex/authbridge:v0.6.0
+    authbridgeLite: ghcr.io/rossoctl/cortex/authbridge-lite:v0.6.0
+    proxyInit: ghcr.io/rossoctl/cortex/proxy-init:v0.6.0
     pullPolicy: IfNotPresent
 
   # Proxy settings
