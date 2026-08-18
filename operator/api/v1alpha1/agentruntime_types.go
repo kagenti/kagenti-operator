@@ -155,6 +155,58 @@ type AgentRuntimeSpec struct {
 	// +optional
 	// +kubebuilder:validation:Enum=enforce-redirect;none
 	EgressEnforcement string `json:"egressEnforcement,omitempty"`
+
+	// Auth configures SPIFFE-based authentication and token exchange for
+	// outbound requests. When set with mode: federated-jwt, the operator
+	// configures AuthBridge to perform token exchange when calling the
+	// specified destinations, requesting the appropriate audiences.
+	//
+	// +optional
+	Auth *AuthConfig `json:"auth,omitempty"`
+}
+
+// AuthConfig defines authentication configuration for an agent or tool.
+type AuthConfig struct {
+	// Outbound defines token exchange routes for calling other services.
+	// Each route tells AuthBridge which audiences to request when calling
+	// a specific destination.
+	//
+	// Routes are only effective when the namespace is configured with
+	// SPIFFE authentication (authBridge.clientAuthType: federated-jwt).
+	// The authentication mode is set globally at the namespace level, not
+	// per-agent.
+	//
+	// +optional
+	Outbound []OutboundRoute `json:"outbound,omitempty"`
+}
+
+// OutboundRoute defines a token exchange route for a specific destination.
+type OutboundRoute struct {
+	// Destination specifies which service this route matches.
+	Destination RouteMatch `json:"destination"`
+
+	// Audiences lists the SPIFFE IDs to request in the token's audience claim.
+	// Typically includes the SPIFFE ID of the target service.
+	//
+	// Example: ["spiffe://localtest.me/ns/team1/sa/weather-tool"]
+	//
+	// +kubebuilder:validation:MinItems=1
+	Audiences []string `json:"audiences"`
+}
+
+// RouteMatch defines how to match an outbound destination.
+type RouteMatch struct {
+	// Host is an exact hostname to match.
+	// Example: "weather-tool-mcp.team1.svc.cluster.local"
+	//
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// HostRegex is a regex pattern to match hostnames.
+	// Example: ".*\\.team1\\.svc\\.cluster\\.local"
+	//
+	// +optional
+	HostRegex string `json:"hostRegex,omitempty"`
 }
 
 // CardStatus holds the fetched A2A agent card data along with fetch metadata

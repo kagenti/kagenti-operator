@@ -76,6 +76,10 @@ const (
 	RossoctlTypeAgent = "agent"
 	// RossoctlTypeTool is the label value that identifies tool workloads
 	RossoctlTypeTool = "tool"
+
+	// tokenExchangePluginName is the name of the AuthBridge plugin that handles
+	// OAuth2 token exchange for SPIFFE-based authentication.
+	tokenExchangePluginName = "token-exchange"
 )
 
 type PodMutator struct {
@@ -218,6 +222,27 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 		mutatorLog.Error(nsConfigErr, "failed to read namespace config, using empty defaults",
 			"namespace", namespace)
 		nsConfig = &NamespaceConfig{}
+	}
+
+	// Fetch the AgentRuntime CR for this workload (if it exists).
+	// The CR may not exist if the workload was deployed before AgentRuntime CRDs were created.
+	// In that case, we proceed with defaults (no spec.auth configuration).
+	var agentRuntime *agentv1alpha1.AgentRuntime
+	agentRuntimeList := &agentv1alpha1.AgentRuntimeList{}
+	if err := reader.List(ctx, agentRuntimeList, client.InNamespace(namespace)); err != nil {
+		mutatorLog.Info("failed to list AgentRuntimes (proceeding with defaults)",
+			"namespace", namespace, "crName", crName, "error", err)
+	} else {
+		// Find AgentRuntime that targets this workload
+		for i := range agentRuntimeList.Items {
+			rt := &agentRuntimeList.Items[i]
+			if rt.Spec.TargetRef.Name == crName && rt.Spec.TargetRef.Kind == workloadKind {
+				agentRuntime = rt
+				mutatorLog.Info("found AgentRuntime CR for workload",
+					"namespace", namespace, "crName", crName, "agentRuntime", rt.Name)
+				break
+			}
+		}
 	}
 
 	// ========================================
@@ -544,7 +569,7 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 				"reverse_proxy_backend": fmt.Sprintf("http://127.0.0.1:%d", newAgentPort),
 				"forward_proxy_addr":    fmt.Sprintf(":%d", forwardProxyPort),
 			},
-			mtlsMode, tlsBridgeMode, spireEnabled)
+			mtlsMode, tlsBridgeMode, spireEnabled, agentRuntime)
 		if err != nil {
 			return false, fmt.Errorf("proxy-sidecar per-agent ConfigMap: %w", err)
 		}
@@ -680,7 +705,7 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 	// inbound listener (gated on MTLSEnabled) and UpstreamTlsContext on
 	// original_destination_tls (strict only).
 	perAgentCMName, err := m.ensurePerAgentConfigMap(ctx, namespace, crName,
-		ModeEnvoySidecar, nsConfig.AuthBridgeRuntimeYAML, nsConfig, nil, mtlsMode, "", spireEnabled) // bridge never runs under envoy-sidecar
+		ModeEnvoySidecar, nsConfig.AuthBridgeRuntimeYAML, nsConfig, nil, mtlsMode, "", spireEnabled, agentRuntime) // bridge never runs under envoy-sidecar
 	if err != nil {
 		return false, fmt.Errorf("envoy-sidecar per-agent ConfigMap: %w", err)
 	}
@@ -877,7 +902,7 @@ func synthesizePipeline(nsConfig *NamespaceConfig) map[string]interface{} {
 		"outbound": map[string]interface{}{
 			"plugins": []interface{}{
 				map[string]interface{}{
-					"name":   "token-exchange",
+					"name":   tokenExchangePluginName,
 					"config": tokenCfg,
 				},
 			},
@@ -907,6 +932,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 	mtlsMode string,
 	tlsBridgeMode string,
 	spireEnabled bool,
+	agentRuntime *agentv1alpha1.AgentRuntime,
 ) (string, error) {
 	cmName := perAgentConfigMapName(crName)
 
@@ -990,6 +1016,74 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 		}
 	} else {
 		delete(cfg, "spiffe")
+	}
+
+	// Generate token-exchange routes from AgentRuntime spec.auth.outbound.
+	// Routes tell AuthBridge which audiences to request when calling specific
+	// destinations. Routes are only effective when the namespace is configured
+	// with SPIFFE authentication (CLIENT_AUTH_TYPE=federated-jwt).
+	if agentRuntime != nil && agentRuntime.Spec.Auth != nil &&
+		len(agentRuntime.Spec.Auth.Outbound) > 0 {
+
+		// Navigate to pipeline.outbound.plugins[token-exchange].config
+		pipeline, _ := cfg["pipeline"].(map[string]interface{})
+		if pipeline == nil {
+			mutatorLog.Info("WARN: no pipeline block found, cannot inject routes",
+				"namespace", namespace, "crName", crName)
+		} else {
+			outbound, _ := pipeline["outbound"].(map[string]interface{})
+			if outbound == nil {
+				mutatorLog.Info("WARN: no outbound block found, cannot inject routes",
+					"namespace", namespace, "crName", crName)
+			} else {
+				plugins, _ := outbound["plugins"].([]interface{})
+				if len(plugins) == 0 {
+					mutatorLog.Info("WARN: no outbound plugins found, cannot inject routes",
+						"namespace", namespace, "crName", crName)
+				} else {
+					// Find the token-exchange plugin
+					for i := range plugins {
+						plugin, _ := plugins[i].(map[string]interface{})
+						if plugin == nil {
+							continue
+						}
+						pluginName, _ := plugin["name"].(string)
+						if pluginName == tokenExchangePluginName {
+							pluginConfig, _ := plugin["config"].(map[string]interface{})
+							if pluginConfig == nil {
+								pluginConfig = make(map[string]interface{})
+								plugin["config"] = pluginConfig
+							}
+
+							// Generate routes from spec.auth.outbound
+							routes := make([]interface{}, 0, len(agentRuntime.Spec.Auth.Outbound))
+							for _, outboundRoute := range agentRuntime.Spec.Auth.Outbound {
+								route := map[string]interface{}{
+									"audiences": outboundRoute.Audiences,
+								}
+
+								// Add destination match (host or hostRegex)
+								destination := make(map[string]interface{})
+								if outboundRoute.Destination.Host != "" {
+									destination["host"] = outboundRoute.Destination.Host
+								}
+								if outboundRoute.Destination.HostRegex != "" {
+									destination["hostRegex"] = outboundRoute.Destination.HostRegex
+								}
+								route["destination"] = destination
+
+								routes = append(routes, route)
+							}
+
+							pluginConfig["routes"] = routes
+							mutatorLog.Info("injected token-exchange routes from AgentRuntime spec.auth",
+								"namespace", namespace, "crName", crName, "routeCount", len(routes))
+							break
+						}
+					}
+				}
+			}
+		}
 	}
 
 	// Marshal back to YAML

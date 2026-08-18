@@ -60,6 +60,58 @@ spec:
           spec:
             description: AgentRuntimeSpec defines the desired state of AgentRuntime.
             properties:
+              auth:
+                description: |-
+                  Auth configures SPIFFE-based authentication and token exchange for
+                  outbound requests. When set with mode: federated-jwt, the operator
+                  configures AuthBridge to perform token exchange when calling the
+                  specified destinations, requesting the appropriate audiences.
+                properties:
+                  outbound:
+                    description: |-
+                      Outbound defines token exchange routes for calling other services.
+                      Each route tells AuthBridge which audiences to request when calling
+                      a specific destination.
+
+                      Routes are only effective when the namespace is configured with
+                      SPIFFE authentication (authBridge.clientAuthType: federated-jwt).
+                      The authentication mode is set globally at the namespace level, not
+                      per-agent.
+                    items:
+                      description: OutboundRoute defines a token exchange route for
+                        a specific destination.
+                      properties:
+                        audiences:
+                          description: |-
+                            Audiences lists the SPIFFE IDs to request in the token's audience claim.
+                            Typically includes the SPIFFE ID of the target service.
+
+                            Example: ["spiffe://localtest.me/ns/team1/sa/weather-tool"]
+                          items:
+                            type: string
+                          minItems: 1
+                          type: array
+                        destination:
+                          description: Destination specifies which service this route
+                            matches.
+                          properties:
+                            host:
+                              description: |-
+                                Host is an exact hostname to match.
+                                Example: "weather-tool-mcp.team1.svc.cluster.local"
+                              type: string
+                            hostRegex:
+                              description: |-
+                                HostRegex is a regex pattern to match hostnames.
+                                Example: ".*\\.team1\\.svc\\.cluster\\.local"
+                              type: string
+                          type: object
+                      required:
+                      - audiences
+                      - destination
+                      type: object
+                    type: array
+                type: object
               authBridgeMode:
                 description: |-
                   AuthBridgeMode selects the deployment shape for this workload's
