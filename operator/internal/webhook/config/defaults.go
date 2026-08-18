@@ -53,13 +53,20 @@ func CompiledDefaults() *PlatformConfig {
 			// Transparent listener port — must match the authbridge proxy-sidecar
 			// preset (listener.transparent_proxy_addr default :8082).
 			TransparentPort: 8082,
+			// Inbound transparent listener. Matches the authbridge proxy-sidecar
+			// preset (listener.transparent_inbound_addr default :8083); 8080/8081/8082
+			// are the reverse, forward and transparent-egress listeners.
+			TransparentInboundPort: 8083,
 			// Empty by default: proxy-init auto-detects the iptables backend from
 			// /proc/modules. Set (e.g. "iptables") to force a backend per-platform.
 			IptablesCmd: "",
 			// Both modes allowed by default. Set to ["none"] on platforms
 			// where iptables is unavailable (ROSA HCP, managed OpenShift),
 			// or ["enforce-redirect"] to prevent opt-out.
-			AllowedEgressEnforcement: []string{"enforce-redirect", "none"},
+			// Both allowed by default: transparent inbound is opt-in per workload,
+			// and a platform admin can narrow this to forbid or mandate it.
+			AllowedInboundInterception: []string{"reverse-proxy", "transparent"},
+			AllowedEgressEnforcement:   []string{"enforce-redirect", "none"},
 		},
 		Resources: ResourcesConfig{
 			EnvoyProxy: corev1.ResourceRequirements{

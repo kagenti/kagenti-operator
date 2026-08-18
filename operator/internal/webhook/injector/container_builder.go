@@ -234,6 +234,28 @@ func (b *ContainerBuilder) BuildProxySidecarContainer(spireEnabled bool) corev1.
 // agentBackendPort: where the agent actually listens (moved to a free port)
 // forwardProxyPort: where the forward proxy listens (HTTP_PROXY target)
 func (b *ContainerBuilder) BuildProxySidecarContainerWithPorts(spireEnabled bool, image string, reverseProxyPort, agentBackendPort, forwardProxyPort int32) corev1.Container {
+	// agentBackendPort is not rendered into the container: it is where the agent
+	// was relocated to, which the sidecar learns from its ConfigMap
+	// (reverse_proxy_backend), not from a declared port.
+	_ = agentBackendPort
+	return b.buildProxySidecarContainer(spireEnabled, image, "reverse-proxy", reverseProxyPort, forwardProxyPort)
+}
+
+// BuildProxySidecarContainerTransparent builds the sidecar for
+// inboundInterception "transparent": AuthBridge binds its own inbound listener
+// on transparentInboundPort and iptables REDIRECTs to it, so the agent keeps its
+// own port and there is no relocated backend port to declare.
+//
+// The declared port is named "transparent-in" rather than "reverse-proxy" so
+// `kubectl describe pod` reflects which inbound shape is actually running —
+// otherwise the two are indistinguishable from the pod spec.
+func (b *ContainerBuilder) BuildProxySidecarContainerTransparent(spireEnabled bool, image string, transparentInboundPort, forwardProxyPort int32) corev1.Container {
+	// No backend port: with transparent interception the forwarding target is
+	// resolved per connection from SO_ORIGINAL_DST, not configured.
+	return b.buildProxySidecarContainer(spireEnabled, image, "transparent-in", transparentInboundPort, forwardProxyPort)
+}
+
+func (b *ContainerBuilder) buildProxySidecarContainer(spireEnabled bool, image, inboundPortName string, inboundPort, forwardProxyPort int32) corev1.Container {
 	volumeMounts := []corev1.VolumeMount{
 		{
 			Name:      "shared-data",
@@ -287,8 +309,8 @@ func (b *ContainerBuilder) BuildProxySidecarContainerWithPorts(spireEnabled bool
 		},
 		Ports: []corev1.ContainerPort{
 			{
-				Name:          "reverse-proxy",
-				ContainerPort: reverseProxyPort,
+				Name:          inboundPortName,
+				ContainerPort: inboundPort,
 				Protocol:      corev1.ProtocolTCP,
 			},
 			{
@@ -465,6 +487,35 @@ const mandatoryOutboundExclude = "8080"
 //     TRANSPARENT_PORT; the exclude args do not apply. Cluster DNS is kept
 //     direct by the init script reading the pod's resolv.conf nameservers.
 func (b *ContainerBuilder) BuildProxyInitContainer(mode ProxyInitMode, outboundPortsExclude, inboundPortsExclude string) corev1.Container {
+	return b.BuildProxyInitContainerWithInbound(mode, outboundPortsExclude, inboundPortsExclude, ProxyInitInbound{})
+}
+
+// ProxyInitInbound carries the transparent-inbound additions to proxy-init's
+// enforce-redirect mode. The zero value leaves inbound interception off, which
+// is what BuildProxyInitContainer passes — so existing callers keep egress-only
+// behavior with no change.
+type ProxyInitInbound struct {
+	// Port is the PREROUTING REDIRECT target (INBOUND_TRANSPARENT_PORT). Zero
+	// means inbound interception is off.
+	Port int32
+
+	// SidecarPortsExclude is the comma-separated list of AuthBridge's own
+	// listeners to exempt from the inbound REDIRECT. The operator supplies the
+	// real forward-proxy port here, which may not be the script's default 8081
+	// when findFreePort had to move it.
+	SidecarPortsExclude string
+
+	// PortsExclude is the operator/user app-port exemption list
+	// (kagenti.io/inbound-ports-exclude), for app ports that must not be
+	// validated — e.g. an oauth-proxy doing its own authentication.
+	PortsExclude string
+}
+
+// BuildProxyInitContainerWithInbound is BuildProxyInitContainer plus the
+// transparent-inbound environment. Split out rather than folded into the
+// existing signature so the redirect-mode and egress-only callers stay
+// untouched.
+func (b *ContainerBuilder) BuildProxyInitContainerWithInbound(mode ProxyInitMode, outboundPortsExclude, inboundPortsExclude string, inbound ProxyInitInbound) corev1.Container {
 	var env []corev1.EnvVar
 	switch mode {
 	case ProxyInitModeEnforceRedirect:
@@ -479,10 +530,34 @@ func (b *ContainerBuilder) BuildProxyInitContainer(mode ProxyInitMode, outboundP
 			{Name: "PROXY_UID", Value: fmt.Sprintf("%d", b.cfg.Proxy.UID)},
 			{Name: "TRANSPARENT_PORT", Value: fmt.Sprintf("%d", b.cfg.Proxy.TransparentPort)},
 		}
+		// Transparent inbound (opt-in). POD_IP is REQUIRED alongside the port:
+		// the init script uses it as the DNAT target for the Istio ambient inbound
+		// path, which arrives through OUTPUT rather than PREROUTING. The script
+		// refuses to start without it rather than install PREROUTING-only rules
+		// that would wave all mesh traffic through unvalidated.
+		if inbound.Port > 0 {
+			env = append(env,
+				corev1.EnvVar{Name: "INBOUND_TRANSPARENT_PORT", Value: fmt.Sprintf("%d", inbound.Port)},
+				corev1.EnvVar{
+					Name: "POD_IP",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
+					},
+				},
+			)
+			if inbound.SidecarPortsExclude != "" {
+				env = append(env, corev1.EnvVar{Name: "SIDECAR_PORTS_EXCLUDE", Value: inbound.SidecarPortsExclude})
+			}
+			if v := buildPortExcludeValue(inbound.PortsExclude, "inbound-ports-exclude"); v != "" {
+				env = append(env, corev1.EnvVar{Name: "INBOUND_PORTS_EXCLUDE", Value: v})
+			}
+		}
 		builderLog.Info("building ProxyInit Container",
 			"mode", "enforce-redirect",
 			"proxyUID", b.cfg.Proxy.UID,
-			"transparentPort", b.cfg.Proxy.TransparentPort)
+			"transparentPort", b.cfg.Proxy.TransparentPort,
+			"inboundTransparentPort", inbound.Port,
+			"sidecarPortsExclude", inbound.SidecarPortsExclude)
 	case ProxyInitModeRedirect:
 		outboundValue := buildOutboundExcludeValue(outboundPortsExclude)
 		inboundValue := buildPortExcludeValue(inboundPortsExclude, "inbound-ports-exclude")

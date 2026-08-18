@@ -65,6 +65,38 @@ const (
 	EgressEnforcementNone = "none"
 )
 
+// AuthBridge's fixed (non-negotiable) listener ports in proxy-sidecar / lite.
+// Unlike the reverse/forward/transparent ports these are not configurable, so
+// the operator must exempt them from the transparent inbound REDIRECT by number.
+// Gating AuthBridgeHealthPort in particular would put kubelet probes behind JWT
+// validation and crash-loop the pod.
+const (
+	authBridgeHealthPort     = 9091 // /healthz
+	authBridgeStatsPort      = 9093 // stats + config inspection + /reload/status
+	authBridgeSessionAPIPort = 9094 // session events API (consumed by abctl)
+)
+
+// Inbound interception mechanisms for the proxy-sidecar / lite paths. These
+// select HOW inbound traffic reaches AuthBridge's inbound pipeline — they are
+// not two levels of the same knob, but two different deployment shapes.
+const (
+	// InboundInterceptionReverseProxy is the default: port stealing. AuthBridge
+	// binds the agent's original port and the agent is relocated to a free one
+	// via the PORT env var, so the Service needs no patching. Requires no
+	// privileges, but leaves the relocated port reachable directly (a pod-to-pod
+	// bypass of JWT validation), only covers the first declared container port,
+	// and silently fails for agents that hardcode their listen port.
+	InboundInterceptionReverseProxy = "reverse-proxy"
+
+	// InboundInterceptionTransparent installs a PREROUTING REDIRECT via
+	// proxy-init and lets AuthBridge recover each connection's real destination
+	// via SO_ORIGINAL_DST. The agent keeps its own port — no relocation, no PORT
+	// env var, no second port to discover — and every port it listens on is
+	// covered. Costs a privileged proxy-init container (NET_ADMIN) and is
+	// Linux-only, so it is opt-in.
+	InboundInterceptionTransparent = "transparent"
+)
+
 // mTLS modes for the proxy-sidecar / lite paths. Selected via the
 // namespace `authbridge-runtime-config` ConfigMap's `mtls.mode` field,
 // then MTLSModeDisabled. envoy-sidecar mode is incompatible with mTLS

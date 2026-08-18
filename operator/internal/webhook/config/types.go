@@ -64,6 +64,20 @@ type ProxyConfig struct {
 	// where auto-detection is wrong or undesired.
 	IptablesCmd string `json:"iptablesCmd" yaml:"iptablesCmd"`
 
+	// TransparentInboundPort is the INBOUND transparent listener port — the
+	// PREROUTING REDIRECT target when inboundInterception is "transparent".
+	// MUST match the authbridge listener.transparent_inbound_addr (preset
+	// default :8083); a mismatch redirects inbound traffic to a dead port.
+	TransparentInboundPort int32 `json:"transparentInboundPort" yaml:"transparentInboundPort"`
+
+	// AllowedInboundInterception restricts which inboundInterception values
+	// workloads in this cluster may select, mirroring
+	// AllowedEgressEnforcement. Transparent inbound requires a privileged
+	// proxy-init container, so a platform admin may want to forbid it
+	// (["reverse-proxy"]) or mandate it (["transparent"]). A resolved value
+	// outside the list falls back to the list's first entry.
+	AllowedInboundInterception []string `json:"allowedInboundInterception,omitempty" yaml:"allowedInboundInterception,omitempty"`
+
 	// AllowedEgressEnforcement restricts which egressEnforcement values
 	// workloads (AgentRuntime CR / namespace ConfigMap) may select.
 	// The webhook rejects resolved values not in this list, falling back
@@ -108,6 +122,10 @@ func (c *PlatformConfig) DeepCopy() *PlatformConfig {
 		copy(result.TokenExchange.DefaultScopes, c.TokenExchange.DefaultScopes)
 	}
 
+	if c.Proxy.AllowedInboundInterception != nil {
+		result.Proxy.AllowedInboundInterception = make([]string, len(c.Proxy.AllowedInboundInterception))
+		copy(result.Proxy.AllowedInboundInterception, c.Proxy.AllowedInboundInterception)
+	}
 	if c.Proxy.AllowedEgressEnforcement != nil {
 		result.Proxy.AllowedEgressEnforcement = make([]string, len(c.Proxy.AllowedEgressEnforcement))
 		copy(result.Proxy.AllowedEgressEnforcement, c.Proxy.AllowedEgressEnforcement)
@@ -152,6 +170,15 @@ func (c *PlatformConfig) Validate() error {
 	if c.Proxy.TransparentPort < 1024 || c.Proxy.TransparentPort > 65535 {
 		return fmt.Errorf("proxy.transparentPort must be between 1024 and 65535")
 	}
+	if c.Proxy.TransparentInboundPort < 1024 || c.Proxy.TransparentInboundPort > 65535 {
+		return fmt.Errorf("proxy.transparentInboundPort must be between 1024 and 65535")
+	}
+	// The two transparent listeners are separate sockets in one container; a
+	// shared value would make the second bind fail at pod start, after admission
+	// has already succeeded. Catch it at operator startup instead.
+	if c.Proxy.TransparentInboundPort == c.Proxy.TransparentPort {
+		return fmt.Errorf("proxy.transparentInboundPort (%d) must differ from proxy.transparentPort — they are distinct listeners in the same container", c.Proxy.TransparentInboundPort)
+	}
 	// The enforce-redirect guard exempts this UID (--uid-owner) and the proxy
 	// container runs as it; it must be a real non-root user.
 	if c.Proxy.UID < 1 {
@@ -165,6 +192,14 @@ func (c *PlatformConfig) Validate() error {
 	case "", "iptables", "iptables-nft", "iptables-legacy":
 	default:
 		return fmt.Errorf("proxy.iptablesCmd %q is not a recognized backend (want one of: \"\" (auto-detect), iptables, iptables-nft, iptables-legacy)", c.Proxy.IptablesCmd)
+	}
+	if len(c.Proxy.AllowedInboundInterception) == 0 {
+		return fmt.Errorf("proxy.allowedInboundInterception must not be empty (set [\"reverse-proxy\"] to forbid transparent inbound, [\"transparent\"] to require it, or both to allow workload choice)")
+	}
+	for _, mode := range c.Proxy.AllowedInboundInterception {
+		if mode != "reverse-proxy" && mode != "transparent" {
+			return fmt.Errorf("proxy.allowedInboundInterception contains invalid value %q (allowed: reverse-proxy, transparent)", mode)
+		}
 	}
 	if len(c.Proxy.AllowedEgressEnforcement) == 0 {
 		return fmt.Errorf("proxy.allowedEgressEnforcement must not be empty (set [\"enforce-redirect\"] to require enforcement, [\"none\"] to disable it, or both to allow workload choice)")

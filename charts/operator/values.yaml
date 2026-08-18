@@ -262,6 +262,11 @@ defaults:
     # always-on enforce-redirect egress guard (proxy-sidecar / lite). MUST match
     # the authbridge listener.transparent_proxy_addr (default :8082).
     transparentPort: 8082
+    # INBOUND transparent listener port — the PREROUTING REDIRECT target when a
+    # workload selects inboundInterception: transparent. MUST match the authbridge
+    # listener.transparent_inbound_addr (preset default :8083), and must differ
+    # from transparentPort (they are separate listeners in the same container).
+    transparentInboundPort: 8083
     # Cluster DNS is kept direct by proxy-init itself (it reads the pod's
     # /etc/resolv.conf nameservers), so there is no in-cluster CIDR knob to set —
     # works on Kind / OpenShift / EKS / NodeLocal-DNSCache with no per-cluster config.
@@ -280,6 +285,16 @@ defaults:
     allowedEgressEnforcement:
       - enforce-redirect
       - none
+    # Which inbound interception mechanisms workloads in this cluster may select.
+    # A resolved value outside this list falls back to the FIRST entry, so order
+    # matters. Transparent inbound needs a privileged proxy-init container
+    # (NET_ADMIN), so an admin may want to forbid or mandate it:
+    #   ["reverse-proxy"]                 — port stealing only, no NET_ADMIN
+    #   ["transparent"]                   — hard inbound boundary required
+    #   ["reverse-proxy", "transparent"]  — workloads choose (default)
+    allowedInboundInterception:
+      - reverse-proxy
+      - transparent
 
   # Resource defaults (conservative for dev)
   # Note: requests must be <= limits
