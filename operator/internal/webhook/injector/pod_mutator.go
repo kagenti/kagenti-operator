@@ -76,6 +76,10 @@ const (
 	RossoctlTypeAgent = "agent"
 	// RossoctlTypeTool is the label value that identifies tool workloads
 	RossoctlTypeTool = "tool"
+
+	// tokenExchangePluginName is the name of the AuthBridge plugin that handles
+	// OAuth2 token exchange for SPIFFE-based authentication.
+	tokenExchangePluginName = "token-exchange"
 )
 
 type PodMutator struct {
@@ -898,7 +902,7 @@ func synthesizePipeline(nsConfig *NamespaceConfig) map[string]interface{} {
 		"outbound": map[string]interface{}{
 			"plugins": []interface{}{
 				map[string]interface{}{
-					"name":   "token-exchange",
+					"name":   tokenExchangePluginName,
 					"config": tokenCfg,
 				},
 			},
@@ -1033,7 +1037,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 					"namespace", namespace, "crName", crName)
 			} else {
 				plugins, _ := outbound["plugins"].([]interface{})
-				if plugins == nil || len(plugins) == 0 {
+				if len(plugins) == 0 {
 					mutatorLog.Info("WARN: no outbound plugins found, cannot inject routes",
 						"namespace", namespace, "crName", crName)
 				} else {
@@ -1044,7 +1048,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 							continue
 						}
 						pluginName, _ := plugin["name"].(string)
-						if pluginName == "token-exchange" {
+						if pluginName == tokenExchangePluginName {
 							pluginConfig, _ := plugin["config"].(map[string]interface{})
 							if pluginConfig == nil {
 								pluginConfig = make(map[string]interface{})
