@@ -167,24 +167,14 @@ type AgentRuntimeSpec struct {
 
 // AuthConfig defines authentication configuration for an agent or tool.
 type AuthConfig struct {
-	// Mode selects the authentication mechanism.
-	//
-	// Values:
-	//   federated-jwt    Use SPIFFE JWT-SVID for client authentication
-	//                    with Keycloak. Requires SPIRE and Keycloak 26.6+
-	//                    with federated client authentication enabled.
-	//   client-secret    Use traditional OAuth2 client credentials (default).
-	//                    The operator provisions a client secret.
-	//   disabled         No authentication configured. Use for public
-	//                    endpoints or when authentication is handled elsewhere.
-	//
-	// +kubebuilder:validation:Enum=federated-jwt;client-secret;disabled
-	// +kubebuilder:default=client-secret
-	Mode string `json:"mode"`
-
 	// Outbound defines token exchange routes for calling other services.
 	// Each route tells AuthBridge which audiences to request when calling
-	// a specific destination. Only used when mode is federated-jwt.
+	// a specific destination.
+	//
+	// Routes are only effective when the namespace is configured with
+	// SPIFFE authentication (authBridge.clientAuthType: federated-jwt).
+	// The authentication mode is set globally at the namespace level, not
+	// per-agent.
 	//
 	// +optional
 	Outbound []OutboundRoute `json:"outbound,omitempty"`

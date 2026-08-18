@@ -1018,11 +1018,11 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 		delete(cfg, "spiffe")
 	}
 
-	// Generate token-exchange routes from AgentRuntime spec.auth.outbound
-	// when mode is federated-jwt. Routes tell AuthBridge which audiences
-	// to request when calling specific destinations.
+	// Generate token-exchange routes from AgentRuntime spec.auth.outbound.
+	// Routes tell AuthBridge which audiences to request when calling specific
+	// destinations. Routes are only effective when the namespace is configured
+	// with SPIFFE authentication (CLIENT_AUTH_TYPE=federated-jwt).
 	if agentRuntime != nil && agentRuntime.Spec.Auth != nil &&
-		agentRuntime.Spec.Auth.Mode == "federated-jwt" &&
 		len(agentRuntime.Spec.Auth.Outbound) > 0 {
 
 		// Navigate to pipeline.outbound.plugins[token-exchange].config

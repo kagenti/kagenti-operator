@@ -50,7 +50,6 @@ func TestEnsurePerAgentConfigMap_WithAuthRoutes(t *testing.T) {
 				Name:       "weather-agent",
 			},
 			Auth: &agentv1alpha1.AuthConfig{
-				Mode: "federated-jwt",
 				Outbound: []agentv1alpha1.OutboundRoute{
 					{
 						Destination: agentv1alpha1.RouteMatch{
