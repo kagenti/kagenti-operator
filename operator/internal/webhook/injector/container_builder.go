@@ -544,6 +544,18 @@ func (b *ContainerBuilder) BuildProxyInitContainerWithInbound(mode ProxyInitMode
 						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIP"},
 					},
 				},
+				// POD_IPS carries BOTH families on a dual-stack pod. POD_IP alone is
+				// the primary address (usually v4), and the ambient DNAT target must
+				// match the family of the traffic — so keying only off POD_IP leaves
+				// the other family's HBONE delivery passing unvalidated while its
+				// PREROUTING rules are installed. proxy-init falls back to POD_IP
+				// when this is absent.
+				corev1.EnvVar{
+					Name: "POD_IPS",
+					ValueFrom: &corev1.EnvVarSource{
+						FieldRef: &corev1.ObjectFieldSelector{FieldPath: "status.podIPs"},
+					},
+				},
 			)
 			if inbound.SidecarPortsExclude != "" {
 				env = append(env, corev1.EnvVar{Name: "SIDECAR_PORTS_EXCLUDE", Value: inbound.SidecarPortsExclude})

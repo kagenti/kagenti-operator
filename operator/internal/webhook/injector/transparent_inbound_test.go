@@ -237,6 +237,18 @@ func TestTransparentInbound_ProxyInitEnv(t *testing.T) {
 		t.Errorf("POD_IP must come from the downward API status.podIP, got %+v", podIP.ValueFrom)
 	}
 
+	// POD_IPS covers the dual-stack case: with only POD_IP (the primary address)
+	// the other family's ambient delivery would pass unvalidated while its
+	// PREROUTING rules were installed.
+	podIPs, ok := envVarOf(init, "POD_IPS")
+	if !ok {
+		t.Fatal("POD_IPS missing — IPv6 ambient inbound is uncaptured on a dual-stack pod")
+	}
+	if podIPs.ValueFrom == nil || podIPs.ValueFrom.FieldRef == nil ||
+		podIPs.ValueFrom.FieldRef.FieldPath != "status.podIPs" {
+		t.Errorf("POD_IPS must come from the downward API status.podIPs, got %+v", podIPs.ValueFrom)
+	}
+
 	// SIDECAR_PORTS_EXCLUDE must carry the RESOLVED forward-proxy port. If the
 	// script's 8081 default were used and findFreePort had moved it, the inbound
 	// REDIRECT would swallow the forward proxy's own port.
