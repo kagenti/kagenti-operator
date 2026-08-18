@@ -155,6 +155,68 @@ type AgentRuntimeSpec struct {
 	// +optional
 	// +kubebuilder:validation:Enum=enforce-redirect;none
 	EgressEnforcement string `json:"egressEnforcement,omitempty"`
+
+	// Auth configures SPIFFE-based authentication and token exchange for
+	// outbound requests. When set with mode: federated-jwt, the operator
+	// configures AuthBridge to perform token exchange when calling the
+	// specified destinations, requesting the appropriate audiences.
+	//
+	// +optional
+	Auth *AuthConfig `json:"auth,omitempty"`
+}
+
+// AuthConfig defines authentication configuration for an agent or tool.
+type AuthConfig struct {
+	// Mode selects the authentication mechanism.
+	//
+	// Values:
+	//   federated-jwt    Use SPIFFE JWT-SVID for client authentication
+	//                    with Keycloak. Requires SPIRE and Keycloak 26.6+
+	//                    with federated client authentication enabled.
+	//   client-secret    Use traditional OAuth2 client credentials (default).
+	//                    The operator provisions a client secret.
+	//   disabled         No authentication configured. Use for public
+	//                    endpoints or when authentication is handled elsewhere.
+	//
+	// +kubebuilder:validation:Enum=federated-jwt;client-secret;disabled
+	// +kubebuilder:default=client-secret
+	Mode string `json:"mode"`
+
+	// Outbound defines token exchange routes for calling other services.
+	// Each route tells AuthBridge which audiences to request when calling
+	// a specific destination. Only used when mode is federated-jwt.
+	//
+	// +optional
+	Outbound []OutboundRoute `json:"outbound,omitempty"`
+}
+
+// OutboundRoute defines a token exchange route for a specific destination.
+type OutboundRoute struct {
+	// Destination specifies which service this route matches.
+	Destination RouteMatch `json:"destination"`
+
+	// Audiences lists the SPIFFE IDs to request in the token's audience claim.
+	// Typically includes the SPIFFE ID of the target service.
+	//
+	// Example: ["spiffe://localtest.me/ns/team1/sa/weather-tool"]
+	//
+	// +kubebuilder:validation:MinItems=1
+	Audiences []string `json:"audiences"`
+}
+
+// RouteMatch defines how to match an outbound destination.
+type RouteMatch struct {
+	// Host is an exact hostname to match.
+	// Example: "weather-tool-mcp.team1.svc.cluster.local"
+	//
+	// +optional
+	Host string `json:"host,omitempty"`
+
+	// HostRegex is a regex pattern to match hostnames.
+	// Example: ".*\\.team1\\.svc\\.cluster\\.local"
+	//
+	// +optional
+	HostRegex string `json:"hostRegex,omitempty"`
 }
 
 // CardStatus holds the fetched A2A agent card data along with fetch metadata
