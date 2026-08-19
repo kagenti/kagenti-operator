@@ -29,20 +29,25 @@ func CompiledDefaults() *PlatformConfig {
 		// Compiled defaults are overridden at runtime by the platform-config
 		// ConfigMap (rossoctl-platform-config). These serve as fallbacks only.
 		Images: ImageConfig{
+			// Keep in sync with charts/operator/values.yaml (defaults.images.*).
+			// These compiled fallbacks are used when the platform-config ConfigMap
+			// is absent (e.g. kustomize `make deploy`, or webhook.enable=false), so
+			// they must be version-pinned too — an unpinned fallback would inject
+			// :latest on exactly the deploy paths the chart-layer pin doesn't cover.
 			// authbridge-envoy: combined image for envoy-sidecar mode
 			// (Envoy + ext_proc authbridge + spiffe-helper bundled).
-			EnvoyProxy: "ghcr.io/rossoctl/cortex/authbridge-envoy:latest",
+			EnvoyProxy: "ghcr.io/rossoctl/cortex/authbridge-envoy:v0.7.0-alpha.3",
 			// authbridge: combined image for proxy-sidecar mode (default
 			// deployment shape) — authbridge-proxy + spiffe-helper
 			// bundled, no Envoy, no gRPC.
-			AuthBridge: "ghcr.io/rossoctl/cortex/authbridge:latest",
+			AuthBridge: "ghcr.io/rossoctl/cortex/authbridge:v0.7.0-alpha.3",
 			// authbridge-lite: size-optimized variant for the "lite"
 			// mode. Same listener layout as AuthBridge but parsers
 			// (a2a/mcp/inference) are dropped.
-			AuthBridgeLite: "ghcr.io/rossoctl/cortex/authbridge-lite:latest",
+			AuthBridgeLite: "ghcr.io/rossoctl/cortex/authbridge-lite:v0.7.0-alpha.3",
 			// proxy-init: iptables init container, used by
 			// envoy-sidecar mode only.
-			ProxyInit:  "ghcr.io/rossoctl/cortex/proxy-init:latest",
+			ProxyInit:  "ghcr.io/rossoctl/cortex/proxy-init:v0.7.0-alpha.3",
 			PullPolicy: corev1.PullIfNotPresent,
 		},
 		Proxy: ProxyConfig{

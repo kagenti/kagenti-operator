@@ -150,6 +150,37 @@ jobs:
             fi
           done
 
+      - name: Install yq
+        uses: mikefarah/yq@1b9b4ac5187171d2e5e3129be0cfa827c7f9d53d  # v4
+
+      - name: Guard — AuthBridge injection images must be version-pinned (no floating tags)
+        # Catches a :latest / floating-tag regression at PR-review time rather than
+        # mid-release (rossoctl/rossoctl#508). Positive assertion: every injection image
+        # must carry a :vX.Y.Z tag, in BOTH the chart values and the compiled Go fallbacks
+        # (config/defaults.go, which the platform-config ConfigMap overlays on top of — a
+        # no-ConfigMap deploy would otherwise still inject :latest).
+        run: |
+          set -euo pipefail
+          fail=0
+          for k in envoyProxy authbridge authbridgeLite proxyInit; do
+            img=$(yq ".defaults.images.$k" charts/operator/values.yaml)
+            if [[ ! "$img" =~ :v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "::error file=charts/operator/values.yaml::defaults.images.$k not version-pinned: $img"
+              fail=1
+            fi
+          done
+          while IFS= read -r img; do
+            if [[ ! "$img" =~ :v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+              echo "::error file=operator/internal/webhook/config/defaults.go::compiled default not version-pinned: $img"
+              fail=1
+            fi
+          done < <(grep -oE 'ghcr\.io/rossoctl/cortex/[a-z-]+:[^"]+' operator/internal/webhook/config/defaults.go)
+          if [ "$fail" -ne 0 ]; then
+            echo "::error::pin the flagged AuthBridge injection image(s) to a cortex release tag (rossoctl/rossoctl#508)"
+            exit 1
+          fi
+          echo "AuthBridge injection images are version-pinned OK (values.yaml + config/defaults.go)"
+
   # ============================================================================
   # Phase B: Container/IaC Security
   # ============================================================================

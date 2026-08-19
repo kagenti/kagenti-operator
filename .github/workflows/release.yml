@@ -103,6 +103,37 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Guard — injected AuthBridge images must be version-pinned (no floating tags)
+      # release.yml pins the controller-manager image (below) but NOT the cortex-built
+      # AuthBridge injection images; they were shipping at :latest (rossoctl/rossoctl#508).
+      # Positive assertion (tighter than a deny-list, which passes untagged/:dev/etc):
+      # every injection image must carry a :vX.Y.Z tag — in BOTH the chart values and
+      # the compiled Go fallbacks (config/defaults.go), which loader.go overlays the
+      # platform-config ConfigMap on top of, so a no-ConfigMap deploy (kustomize
+      # `make deploy`, webhook.enable=false) would otherwise still inject :latest.
+      # This is a release-time backstop; the same check runs per-PR in security-scans.yaml.
+      run: |
+        set -euo pipefail
+        fail=0
+        for k in envoyProxy authbridge authbridgeLite proxyInit; do
+          img=$(yq ".defaults.images.$k" ${{ env.CHARTS_PATH }}/operator/values.yaml)
+          if [[ ! "$img" =~ :v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::defaults.images.$k not version-pinned in values.yaml: $img"
+            fail=1
+          fi
+        done
+        while IFS= read -r img; do
+          if [[ ! "$img" =~ :v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::compiled default not version-pinned in config/defaults.go: $img"
+            fail=1
+          fi
+        done < <(grep -oE 'ghcr\.io/rossoctl/cortex/[a-z-]+:[^"]+' operator/internal/webhook/config/defaults.go)
+        if [ "$fail" -ne 0 ]; then
+          echo "::error::pin the flagged AuthBridge injection image(s) to a cortex release tag before releasing (rossoctl/rossoctl#508)"
+          exit 1
+        fi
+        echo "AuthBridge injection images are version-pinned OK (values.yaml + config/defaults.go)"
+
     - name: Package and push Helm chart
       run: |
         chartVersion=$(echo "${{ github.ref_name }}" | cut -c 2-)
