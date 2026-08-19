@@ -626,6 +626,41 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 			usedPorts[p] = true
 		}
 
+		// A proxy-init container already in the INCOMING spec is not one we built,
+		// so we cannot assume it carries the inbound env — and the injection below
+		// is skipped when the container exists. Left alone that yields the one
+		// outcome this mode exists to prevent: the sidecar binds the inbound
+		// listener and the ConfigMap says transparent, but nothing REDIRECTs to it,
+		// so inbound is silently unenforced with no error anywhere.
+		//
+		// Reachable only via a hand-authored proxy-init (the webhook is CREATE-only
+		// on pods, and a fresh pod comes from an unmutated template), but the
+		// failure is silent, so check rather than rely on that.
+		if transparentInbound {
+			for i := range podSpec.InitContainers {
+				if podSpec.InitContainers[i].Name != ProxyInitContainerName {
+					continue
+				}
+				armed := false
+				for _, e := range podSpec.InitContainers[i].Env {
+					if e.Name == "INBOUND_TRANSPARENT_PORT" && e.Value != "" {
+						armed = true
+						break
+					}
+				}
+				if !armed {
+					mutatorLog.Info("WARN: pod already carries a proxy-init container without inbound capture; overriding inbound interception to reverse-proxy rather than bind a listener nothing redirects to",
+						"namespace", namespace, "crName", crName,
+						"effectiveMechanism", InboundInterceptionReverseProxy,
+						"source", "preexisting-proxy-init-fallback",
+						"hint", "remove the hand-added proxy-init container to use transparent interception")
+					transparentInbound = false
+					inboundInterception = InboundInterceptionReverseProxy
+				}
+				break
+			}
+		}
+
 		// Which of those are actually BOUND depends on the mechanism: under
 		// reverse-proxy nothing listens on the inbound port, so an agent declaring
 		// it is harmless and must not trigger the fallback below.
@@ -806,6 +841,15 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 				if transparentInbound {
 					inbound = ProxyInitInbound{
 						Port: transparentInboundPort,
+						// Only the ports the SCRIPT cannot know. The forward-proxy port
+						// is here because findFreePort may have moved it off 8081; the
+						// health/stats/session ports because they are operator-side
+						// constants. The two transparent ports (8082 egress, 8083
+						// inbound) are deliberately absent: init-iptables.sh exempts
+						// both unconditionally in emit_inbound_exemptions, on BOTH the
+						// PREROUTING and ambient hooks, since it already knows them from
+						// TRANSPARENT_PORT / INBOUND_TRANSPARENT_PORT. Listing them
+						// again would just duplicate RETURN rules.
 						SidecarPortsExclude: fmt.Sprintf("%d,%d,%d,%d",
 							forwardProxyPort, authBridgeHealthPort, authBridgeStatsPort, authBridgeSessionAPIPort),
 						PortsExclude: annotations[InboundPortsExcludeAnnotation],

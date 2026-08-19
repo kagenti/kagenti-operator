@@ -501,3 +501,70 @@ func TestForwardProxyNeverLandsOnSidecarPort(t *testing.T) {
 		})
 	}
 }
+
+// TestTransparentInbound_PreexistingProxyInitFallsBack covers the divergence a
+// reviewer flagged: the proxy-init injection is skipped when a container of that
+// name already exists, so a hand-authored one without the inbound env would leave
+// the sidecar binding :8083 and the ConfigMap saying transparent while nothing
+// REDIRECTs to it — inbound silently unenforced, with no error anywhere.
+func TestTransparentInbound_PreexistingProxyInitFallsBack(t *testing.T) {
+	m := newTestMutator(inboundCM(InboundInterceptionTransparent, ""))
+	podSpec := agentPodSpec()
+	// A proxy-init the operator did not build: right name, no inbound capture.
+	podSpec.InitContainers = append(podSpec.InitContainers, corev1.Container{
+		Name:  ProxyInitContainerName,
+		Image: "someone-elses/proxy-init:hand-written",
+		Env:   []corev1.EnvVar{{Name: "MODE", Value: "enforce-redirect"}},
+	})
+
+	if _, err := m.InjectAuthBridge(context.Background(), podSpec, "test-ns", "my-agent",
+		"Deployment", map[string]string{RossoctlTypeLabel: RossoctlTypeAgent}, nil); err != nil {
+		t.Fatalf("InjectAuthBridge() error: %v", err)
+	}
+
+	// Must NOT advertise a transparent listener that nothing feeds.
+	proxy := containerByName(podSpec, AuthBridgeProxyContainerName)
+	if proxy == nil {
+		t.Fatal("authbridge-proxy not injected")
+	}
+	for _, p := range proxy.Ports {
+		if p.Name == "transparent-in" {
+			t.Error("sidecar declares transparent-in despite no inbound capture being installed")
+		}
+	}
+	cm := fetchConfigMap(t, m, "test-ns", perAgentConfigMapName("my-agent"))
+	listener := parseConfigYAML(t, cm)["listener"].(map[string]interface{})
+	if _, present := listener["transparent_inbound_addr"]; present {
+		t.Error("ConfigMap still configures a transparent inbound listener nothing redirects to")
+	}
+	if listener["reverse_proxy_backend"] == nil {
+		t.Error("expected the reverse-proxy fallback to be fully configured")
+	}
+}
+
+// TestTransparentInbound_PreexistingArmedProxyInitStaysTransparent guards the
+// guard: an existing proxy-init that DOES carry inbound capture is consistent, so
+// the fallback must not fire.
+func TestTransparentInbound_PreexistingArmedProxyInitStaysTransparent(t *testing.T) {
+	m := newTestMutator(inboundCM(InboundInterceptionTransparent, ""))
+	podSpec := agentPodSpec()
+	podSpec.InitContainers = append(podSpec.InitContainers, corev1.Container{
+		Name:  ProxyInitContainerName,
+		Image: "ghcr.io/rossoctl/cortex/proxy-init:latest",
+		Env: []corev1.EnvVar{
+			{Name: "MODE", Value: "enforce-redirect"},
+			{Name: "INBOUND_TRANSPARENT_PORT", Value: "8083"},
+		},
+	})
+
+	if _, err := m.InjectAuthBridge(context.Background(), podSpec, "test-ns", "my-agent",
+		"Deployment", map[string]string{RossoctlTypeLabel: RossoctlTypeAgent}, nil); err != nil {
+		t.Fatalf("InjectAuthBridge() error: %v", err)
+	}
+
+	cm := fetchConfigMap(t, m, "test-ns", perAgentConfigMapName("my-agent"))
+	listener := parseConfigYAML(t, cm)["listener"].(map[string]interface{})
+	if listener["transparent_inbound_addr"] != ":8083" {
+		t.Errorf("transparent_inbound_addr = %v; an already-armed proxy-init is consistent and must stay transparent", listener["transparent_inbound_addr"])
+	}
+}
