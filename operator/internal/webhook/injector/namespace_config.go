@@ -144,6 +144,25 @@ func ExtractMode(authbridgeYAML string) string {
 	return top.Mode
 }
 
+// ExtractInboundInterception parses an authbridge-runtime-config config.yaml
+// string and returns the value of its top-level `inboundInterception:` key.
+// Returns "" if the YAML is empty, malformed, or has no `inboundInterception`
+// key, so the caller falls through to the next resolution layer.
+func ExtractInboundInterception(authbridgeYAML string) string {
+	if authbridgeYAML == "" {
+		return ""
+	}
+	var top struct {
+		InboundInterception string `json:"inboundInterception"`
+	}
+	if err := yaml.Unmarshal([]byte(authbridgeYAML), &top); err != nil {
+		nsConfigLog.Info("WARN: failed to parse authbridge-runtime-config config.yaml for inboundInterception; falling back to next resolution layer",
+			"error", err)
+		return ""
+	}
+	return top.InboundInterception
+}
+
 // ExtractEgressEnforcement parses an authbridge-runtime-config config.yaml
 // string and returns the value of its top-level `egressEnforcement:` key.
 // Returns "" if the YAML is empty, malformed, or has no `egressEnforcement`
