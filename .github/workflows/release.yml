@@ -103,6 +103,18 @@ jobs:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Guard — injected AuthBridge images must be version-pinned (no floating tags)
+      # release.yml pins the controller-manager image (below) but NOT the cortex-built
+      # AuthBridge injection images; they were shipping at :latest (rossoctl/rossoctl#508).
+      # Fail the release if any is a floating tag so it can never regress silently.
+      run: |
+        cd ${{ env.CHARTS_PATH }}/operator
+        if grep -nE 'ghcr\.io/rossoctl/cortex/[a-z-]+:(latest|main|master)([^0-9a-zA-Z.-]|$)' values.yaml; then
+          echo "::error::injected AuthBridge image(s) pinned to a floating tag — pin to a cortex release tag before releasing (rossoctl/rossoctl#508)"
+          exit 1
+        fi
+        echo "AuthBridge injected images are version-pinned OK"
+
     - name: Package and push Helm chart
       run: |
         chartVersion=$(echo "${{ github.ref_name }}" | cut -c 2-)
