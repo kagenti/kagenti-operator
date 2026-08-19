@@ -355,61 +355,6 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 		"mode", egressEnforcement, "source", egressEnforcementSource)
 
 	// ========================================
-	// Resolve inboundInterception (namespace > reverse-proxy)
-	// ========================================
-	//
-	// Selects the inbound deployment shape in proxy-sidecar / lite modes:
-	// "reverse-proxy" (default) steals the agent's port; "transparent" installs a
-	// PREROUTING REDIRECT and lets AuthBridge recover the real destination.
-	// envoy-sidecar ignores this — Envoy already intercepts inbound.
-	inboundInterception := ""
-	inboundInterceptionSource := ""
-	if ii := ExtractInboundInterception(nsConfig.AuthBridgeRuntimeYAML); ii != "" {
-		inboundInterception = ii
-		inboundInterceptionSource = sourceNamespaceConfigMap
-	}
-	if inboundInterception == "" {
-		inboundInterception = InboundInterceptionReverseProxy
-		inboundInterceptionSource = sourceClusterDefault
-	}
-	switch inboundInterception {
-	case InboundInterceptionReverseProxy, InboundInterceptionTransparent:
-		// recognized, keep as-is
-	default:
-		// Fall back to the shape that needs no privileges: an unrecognized value
-		// must not silently grant a NET_ADMIN init container.
-		mutatorLog.Info("WARN: unrecognized inboundInterception; defaulting to reverse-proxy",
-			"namespace", namespace, "crName", crName,
-			"unrecognized", inboundInterception, "source", inboundInterceptionSource)
-		inboundInterception = InboundInterceptionReverseProxy
-		inboundInterceptionSource = sourceInvalidFallback
-	}
-	allowedInbound := currentConfig.Proxy.AllowedInboundInterception
-	if len(allowedInbound) > 0 && !slices.Contains(allowedInbound, inboundInterception) {
-		mutatorLog.Info("WARN: inboundInterception value not in platform allowedInboundInterception; overriding",
-			"namespace", namespace, "crName", crName,
-			"requested", inboundInterception, "allowed", allowedInbound,
-			"overrideTo", allowedInbound[0])
-		inboundInterception = allowedInbound[0]
-		inboundInterceptionSource = "platform-policy-override"
-	}
-	// Transparent inbound and the egress guard share one proxy-init container.
-	// With egressEnforcement "none" there is no init container to carry the
-	// PREROUTING rules, so nothing would REDIRECT to the inbound listener and it
-	// would bind a port that never receives traffic — inbound silently unenforced.
-	// Fall back to port stealing, which at least validates Service-routed traffic.
-	if inboundInterception == InboundInterceptionTransparent && egressEnforcement != EgressEnforcementEnforceRedirect {
-		mutatorLog.Info("WARN: inboundInterception=transparent requires egressEnforcement=enforce-redirect (shared proxy-init); falling back to reverse-proxy",
-			"namespace", namespace, "crName", crName,
-			"egressEnforcement", egressEnforcement)
-		inboundInterception = InboundInterceptionReverseProxy
-		inboundInterceptionSource = "requires-enforce-redirect-fallback"
-	}
-	mutatorLog.Info("resolved inbound interception",
-		"namespace", namespace, "crName", crName,
-		"mechanism", inboundInterception, "source", inboundInterceptionSource)
-
-	// ========================================
 	// Resolve TLS bridge posture (CR > namespace > "disabled")
 	// ========================================
 	//
@@ -511,6 +456,71 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 		"namespace", namespace, "crName", crName,
 		"mode", authBridgeMode, "source", modeSource)
 
+	// ========================================
+	// Resolve inboundInterception (namespace > reverse-proxy)
+	// ========================================
+	//
+	// Selects the inbound deployment shape in proxy-sidecar / lite modes:
+	// "reverse-proxy" (default) steals the agent's port; "transparent" installs a
+	// PREROUTING REDIRECT and lets AuthBridge recover the real destination.
+	// envoy-sidecar ignores this — Envoy already intercepts inbound.
+	inboundInterception := ""
+	inboundInterceptionSource := ""
+	if ii := ExtractInboundInterception(nsConfig.AuthBridgeRuntimeYAML); ii != "" {
+		inboundInterception = ii
+		inboundInterceptionSource = sourceNamespaceConfigMap
+	}
+	if inboundInterception == "" {
+		inboundInterception = InboundInterceptionReverseProxy
+		inboundInterceptionSource = sourceClusterDefault
+	}
+	switch inboundInterception {
+	case InboundInterceptionReverseProxy, InboundInterceptionTransparent:
+		// recognized, keep as-is
+	default:
+		// Fall back to the shape that needs no privileges: an unrecognized value
+		// must not silently grant a NET_ADMIN init container.
+		mutatorLog.Info("WARN: unrecognized inboundInterception; defaulting to reverse-proxy",
+			"namespace", namespace, "crName", crName,
+			"unrecognized", inboundInterception, "source", inboundInterceptionSource)
+		inboundInterception = InboundInterceptionReverseProxy
+		inboundInterceptionSource = sourceInvalidFallback
+	}
+	allowedInbound := currentConfig.Proxy.AllowedInboundInterception
+	if len(allowedInbound) > 0 && !slices.Contains(allowedInbound, inboundInterception) {
+		mutatorLog.Info("WARN: inboundInterception value not in platform allowedInboundInterception; overriding",
+			"namespace", namespace, "crName", crName,
+			"requested", inboundInterception, "allowed", allowedInbound,
+			"overrideTo", allowedInbound[0])
+		inboundInterception = allowedInbound[0]
+		inboundInterceptionSource = "platform-policy-override"
+	}
+	// Transparent inbound and the egress guard share one proxy-init container.
+	// With egressEnforcement "none" there is no init container to carry the
+	// PREROUTING rules, so nothing would REDIRECT to the inbound listener and it
+	// would bind a port that never receives traffic — inbound silently unenforced.
+	// Fall back to port stealing, which at least validates Service-routed traffic.
+	if inboundInterception == InboundInterceptionTransparent && egressEnforcement != EgressEnforcementEnforceRedirect {
+		mutatorLog.Info("WARN: inboundInterception=transparent requires egressEnforcement=enforce-redirect (shared proxy-init); falling back to reverse-proxy",
+			"namespace", namespace, "crName", crName,
+			"egressEnforcement", egressEnforcement)
+		inboundInterception = InboundInterceptionReverseProxy
+		inboundInterceptionSource = "requires-enforce-redirect-fallback"
+	}
+	// Only proxy-sidecar / lite consult this. Saying so keeps the log honest: the
+	// resolver runs before the mode branch, so an envoy-sidecar or waypoint
+	// namespace carrying inboundInterception would otherwise read as though the
+	// value took effect.
+	if authBridgeMode == ModeProxySidecar || authBridgeMode == ModeLite {
+		mutatorLog.Info("resolved inbound interception",
+			"namespace", namespace, "crName", crName,
+			"mechanism", inboundInterception, "source", inboundInterceptionSource)
+	} else if inboundInterceptionSource == sourceNamespaceConfigMap {
+		mutatorLog.Info("ignoring inboundInterception: not applicable to this mode",
+			"namespace", namespace, "crName", crName,
+			"mode", authBridgeMode, "requested", inboundInterception)
+	}
+
 	if authBridgeMode == ModeWaypoint {
 		mutatorLog.Info("waypoint mode — skipping sidecar injection (waypoint is a standalone deployment)",
 			"namespace", namespace, "crName", crName)
@@ -597,12 +607,76 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 		usedPorts[originalAgentPort] = true
 
 		transparentInbound := inboundInterception == InboundInterceptionTransparent
-
-		// The inbound transparent listener needs its own port reserved so
-		// findFreePort can't hand it to the forward proxy.
 		transparentInboundPort := builder.cfg.Proxy.TransparentInboundPort
+
+		// Ports the sidecar owns. Reserved unconditionally so findFreePort can never
+		// hand one to the forward proxy: the transparent EGRESS port in particular
+		// was previously unreserved, so an agent declaring 8081 could push the
+		// forward proxy onto 8082 and collide with a listener that is always on in
+		// this mode. The inbound port is reserved even under reverse-proxy, so port
+		// assignment stays stable if a namespace later flips mechanism.
+		sidecarPorts := map[int32]string{
+			builder.cfg.Proxy.TransparentPort: "transparent egress listener",
+			transparentInboundPort:            "transparent inbound listener",
+			authBridgeHealthPort:              "health endpoint",
+			authBridgeStatsPort:               "stats endpoint",
+			authBridgeSessionAPIPort:          "session-events API",
+		}
+		for p := range sidecarPorts {
+			usedPorts[p] = true
+		}
+
+		// Which of those are actually BOUND depends on the mechanism: under
+		// reverse-proxy nothing listens on the inbound port, so an agent declaring
+		// it is harmless and must not trigger the fallback below.
+		boundBySidecar := make(map[int32]string, len(sidecarPorts))
+		for port, owner := range sidecarPorts {
+			if port == transparentInboundPort && !transparentInbound {
+				continue
+			}
+			boundBySidecar[port] = owner
+		}
+
+		// Reserving is not enough for the agent's OWN ports: containerPort is
+		// informational, so the operator cannot move a port the agent actually
+		// binds. Under port stealing a collision was accidentally survivable —
+		// Ports[0] got relocated off the conflicting port. Transparent mode
+		// deliberately removes that, so an agent declaring the sidecar's inbound
+		// port would leave two processes binding one port in a shared netns:
+		// admission succeeds, then the sidecar dies on "address already in use" in
+		// a container the user never wrote.
+		//
+		// Fall back to port stealing rather than reject. Rejecting would block
+		// pods that declare a colliding port informationally without ever binding
+		// it — which works today — and for a first-port collision the relocation
+		// genuinely resolves it. The warning is the actionable part.
 		if transparentInbound {
-			usedPorts[transparentInboundPort] = true
+			for i := range podSpec.Containers {
+				c := &podSpec.Containers[i]
+				if c.Name == AuthBridgeProxyContainerName {
+					continue
+				}
+				for _, cp := range c.Ports {
+					if owner, clash := boundBySidecar[cp.ContainerPort]; clash {
+						// States the EFFECTIVE mechanism: the "resolved inbound
+						// interception" line above already logged transparent, and
+						// this is the point where that stops being true.
+						mutatorLog.Info("WARN: container declares a port the authbridge sidecar binds; overriding inbound interception to reverse-proxy to avoid a bind collision",
+							"namespace", namespace, "crName", crName,
+							"container", c.Name, "port", cp.ContainerPort,
+							"conflictsWith", owner,
+							"effectiveMechanism", InboundInterceptionReverseProxy,
+							"source", "sidecar-port-conflict-fallback")
+						transparentInbound = false
+						inboundInterception = InboundInterceptionReverseProxy
+						break
+					}
+				}
+				if !transparentInbound {
+					break
+				}
+			}
+
 		}
 
 		// newAgentPort exists only for the port-stealing shape. Transparent
@@ -687,7 +761,6 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 					spireEnabled,
 					proxyImage,
 					originalAgentPort, // reverse proxy listens here
-					newAgentPort,      // forwards to agent here
 					forwardProxyPort,  // forward proxy listens here
 				)
 			}

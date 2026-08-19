@@ -1106,8 +1106,18 @@ func TestInjectAuthBridge_ProxySidecarMode_ForwardProxyCollision(t *testing.T) {
 					if p.ContainerPort == 8081 {
 						t.Error("forward-proxy should not be 8081 (collision with agent metrics)")
 					}
-					if p.ContainerPort != 8082 {
-						t.Errorf("forward-proxy port = %d, want 8082", p.ContainerPort)
+					// 8084, not 8082: the sidecar's own ports are now reserved, so
+					// findFreePort skips the transparent egress listener (8082) and
+					// the transparent inbound listener (8083). This expectation used
+					// to be 8082, which would have put the forward proxy on top of a
+					// listener that is always on in proxy-sidecar mode.
+					if p.ContainerPort != 8084 {
+						t.Errorf("forward-proxy port = %d, want 8084", p.ContainerPort)
+					}
+					for _, owned := range []int32{8082, 8083, 9091, 9093, 9094} {
+						if p.ContainerPort == owned {
+							t.Errorf("forward-proxy assigned %d, a port the sidecar binds", owned)
+						}
 					}
 				}
 			}
@@ -1122,8 +1132,8 @@ func TestInjectAuthBridge_ProxySidecarMode_ForwardProxyCollision(t *testing.T) {
 					if env.Value == "http://127.0.0.1:8081" {
 						t.Error("HTTP_PROXY should not use 8081 (collides with agent metrics)")
 					}
-					if env.Value != "http://127.0.0.1:8082" {
-						t.Errorf("HTTP_PROXY = %q, want http://127.0.0.1:8082", env.Value)
+					if env.Value != "http://127.0.0.1:8084" {
+						t.Errorf("HTTP_PROXY = %q, want http://127.0.0.1:8084", env.Value)
 					}
 				}
 			}

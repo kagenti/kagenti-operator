@@ -221,7 +221,7 @@ func spireSocketDir(socketPath string) string {
 // The app uses HTTP_PROXY env vars to route outbound traffic through the forward proxy.
 // Inbound traffic goes through the reverse proxy.
 func (b *ContainerBuilder) BuildProxySidecarContainer(spireEnabled bool) corev1.Container {
-	return b.BuildProxySidecarContainerWithPorts(spireEnabled, b.cfg.Images.AuthBridge, 8080, 8000, 8081)
+	return b.BuildProxySidecarContainerWithPorts(spireEnabled, b.cfg.Images.AuthBridge, 8080, 8081)
 }
 
 // BuildProxySidecarContainerWithPorts creates a proxy-sidecar container with dynamic ports.
@@ -231,13 +231,11 @@ func (b *ContainerBuilder) BuildProxySidecarContainer(spireEnabled bool) corev1.
 //	on the same ports; only the plugin set compiled into the binary differs.
 //
 // reverseProxyPort: where the reverse proxy listens (takes over the agent's original port)
-// agentBackendPort: where the agent actually listens (moved to a free port)
 // forwardProxyPort: where the forward proxy listens (HTTP_PROXY target)
-func (b *ContainerBuilder) BuildProxySidecarContainerWithPorts(spireEnabled bool, image string, reverseProxyPort, agentBackendPort, forwardProxyPort int32) corev1.Container {
-	// agentBackendPort is not rendered into the container: it is where the agent
-	// was relocated to, which the sidecar learns from its ConfigMap
-	// (reverse_proxy_backend), not from a declared port.
-	_ = agentBackendPort
+func (b *ContainerBuilder) BuildProxySidecarContainerWithPorts(spireEnabled bool, image string, reverseProxyPort, forwardProxyPort int32) corev1.Container {
+	// No agent-backend port parameter: where the agent was relocated to is
+	// something the sidecar learns from its ConfigMap (reverse_proxy_backend), not
+	// from a declared container port.
 	return b.buildProxySidecarContainer(spireEnabled, image, "reverse-proxy", reverseProxyPort, forwardProxyPort)
 }
 

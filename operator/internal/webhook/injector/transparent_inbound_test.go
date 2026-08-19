@@ -385,3 +385,119 @@ func TestExtractInboundInterception(t *testing.T) {
 		})
 	}
 }
+
+// agentPodSpecOnPort is agentPodSpec with a caller-chosen container port, for the
+// collision cases. The existing tests all use 8000, which is why the sidecar-port
+// conflict went uncovered.
+func agentPodSpecOnPort(port int32) *corev1.PodSpec {
+	return &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name:  "agent",
+			Image: "my-agent:latest",
+			Ports: []corev1.ContainerPort{{ContainerPort: port}},
+		}},
+	}
+}
+
+// TestTransparentInbound_AgentPortCollidesWithSidecar covers the failure mode
+// transparent interception newly creates. Under port stealing a collision was
+// accidentally survivable — Ports[0] got relocated off the conflicting port.
+// Transparent mode deliberately does not relocate, so an agent declaring a port
+// the sidecar binds would leave two processes on one port in a shared netns:
+// admission succeeds, then the sidecar dies on "address already in use" in a
+// container the user never wrote.
+//
+// containerPort is informational, so the operator cannot move a port the agent
+// actually binds. Falling back to port stealing is the survivable answer.
+func TestTransparentInbound_AgentPortCollidesWithSidecar(t *testing.T) {
+	// Each of these is a port the sidecar itself binds.
+	for _, tc := range []struct {
+		name string
+		port int32
+	}{
+		{"transparent inbound listener", 8083},
+		{"transparent egress listener", 8082},
+		{"health endpoint", 9091},
+		{"stats endpoint", 9093},
+		{"session-events API", 9094},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := newTestMutator(inboundCM(InboundInterceptionTransparent, ""))
+			podSpec := agentPodSpecOnPort(tc.port)
+
+			if _, err := m.InjectAuthBridge(context.Background(), podSpec, "test-ns", "my-agent",
+				"Deployment", map[string]string{RossoctlTypeLabel: RossoctlTypeAgent}, nil); err != nil {
+				t.Fatalf("InjectAuthBridge() error: %v", err)
+			}
+
+			proxy := containerByName(podSpec, AuthBridgeProxyContainerName)
+			if proxy == nil {
+				t.Fatal("authbridge-proxy not injected")
+			}
+			// Fell back to port stealing: the agent is relocated, so nothing
+			// double-binds.
+			agent := containerByName(podSpec, "agent")
+			if got := agent.Ports[0].ContainerPort; got == tc.port {
+				t.Errorf("agent still on %d; expected relocation after falling back to reverse-proxy", tc.port)
+			}
+			// And the sidecar must not be running the transparent shape.
+			for _, p := range proxy.Ports {
+				if p.Name == "transparent-in" {
+					t.Errorf("sidecar still declares transparent-in after a collision on %d", tc.port)
+				}
+			}
+			init := containerByName(podSpec, ProxyInitContainerName)
+			if init != nil {
+				if _, ok := envVarOf(init, "INBOUND_TRANSPARENT_PORT"); ok {
+					t.Errorf("inbound capture still armed after a collision on %d", tc.port)
+				}
+			}
+		})
+	}
+}
+
+// TestTransparentInbound_NonCollidingPortStillTransparent guards the guard: it
+// must not fire for an ordinary agent port.
+func TestTransparentInbound_NonCollidingPortStillTransparent(t *testing.T) {
+	m := newTestMutator(inboundCM(InboundInterceptionTransparent, ""))
+	podSpec := agentPodSpecOnPort(8000)
+
+	if _, err := m.InjectAuthBridge(context.Background(), podSpec, "test-ns", "my-agent",
+		"Deployment", map[string]string{RossoctlTypeLabel: RossoctlTypeAgent}, nil); err != nil {
+		t.Fatalf("InjectAuthBridge() error: %v", err)
+	}
+	agent := containerByName(podSpec, "agent")
+	if got := agent.Ports[0].ContainerPort; got != 8000 {
+		t.Errorf("agent relocated to %d; a non-colliding port must stay transparent", got)
+	}
+}
+
+// TestForwardProxyNeverLandsOnSidecarPort covers the pre-existing hole the
+// reservation also closes: the transparent EGRESS port was never reserved, so an
+// agent declaring 8081 could push findFreePort's forward proxy onto 8082 and
+// collide with a listener that is always on in proxy-sidecar mode.
+func TestForwardProxyNeverLandsOnSidecarPort(t *testing.T) {
+	for _, mechanism := range []string{InboundInterceptionReverseProxy, InboundInterceptionTransparent} {
+		t.Run(mechanism, func(t *testing.T) {
+			m := newTestMutator(inboundCM(mechanism, ""))
+			// 8081 declared by the agent forces findFreePort to look further.
+			podSpec := agentPodSpecOnPort(8081)
+
+			if _, err := m.InjectAuthBridge(context.Background(), podSpec, "test-ns", "my-agent",
+				"Deployment", map[string]string{RossoctlTypeLabel: RossoctlTypeAgent}, nil); err != nil {
+				t.Fatalf("InjectAuthBridge() error: %v", err)
+			}
+			proxy := containerByName(podSpec, AuthBridgeProxyContainerName)
+			for _, p := range proxy.Ports {
+				if p.Name != "forward-proxy" {
+					continue
+				}
+				for _, owned := range []int32{8082, 8083, 9091, 9093, 9094} {
+					if p.ContainerPort == owned {
+						t.Errorf("forward proxy assigned %d, which the sidecar already binds", owned)
+					}
+				}
+			}
+		})
+	}
+}
