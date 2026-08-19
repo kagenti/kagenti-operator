@@ -355,6 +355,24 @@ func overrideAuthBridgeConfigMapInVolumes(volumes []corev1.Volume, cmName string
 	return result
 }
 
+// overrideRoutesConfigMapInVolumes returns a copy of the volume list with
+// the authproxy-routes volume pointing at the given ConfigMap name. Used when
+// AgentRuntime has spec.auth.outbound configured: the per-agent routes live
+// in authbridge-routes-<crName>, replacing the namespace-level "authproxy-routes".
+func overrideRoutesConfigMapInVolumes(volumes []corev1.Volume, routesCMName string) []corev1.Volume {
+	result := make([]corev1.Volume, len(volumes))
+	copy(result, volumes)
+	for i := range result {
+		if result[i].Name == "authproxy-routes" && result[i].ConfigMap != nil {
+			cmCopy := *result[i].ConfigMap
+			cmCopy.Name = routesCMName
+			cmCopy.Optional = ptr.To(false) // Routes are required when specified
+			result[i].ConfigMap = &cmCopy
+		}
+	}
+	return result
+}
+
 // overrideEnvoyConfigMapInVolumes returns a copy of the volume list with
 // the envoy-config volume pointing at the given ConfigMap name. Used by
 // the envoy-sidecar mTLS path: the rendered per-agent envoy.yaml lives
