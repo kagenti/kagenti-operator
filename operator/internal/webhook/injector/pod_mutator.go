@@ -1325,22 +1325,27 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 			}
 		}
 
-		// Generate routes.yaml content
+		// Generate routes.yaml content in AuthBridge's routing.Route format:
+		// - host: "hostname"  (flat, not nested under destination)
+		// - target_audience: "audience"  (single string, not audiences array)
 		routes := make([]interface{}, 0, len(agentRuntime.Spec.Auth.Outbound))
 		for _, outboundRoute := range agentRuntime.Spec.Auth.Outbound {
-			route := map[string]interface{}{
-				"audiences": outboundRoute.Audiences,
-			}
+			route := make(map[string]interface{})
 
-			// Add destination match (host or hostRegex)
-			destination := make(map[string]interface{})
+			// Host or HostRegex (flat fields, not nested)
 			if outboundRoute.Destination.Host != "" {
-				destination["host"] = outboundRoute.Destination.Host
+				route["host"] = outboundRoute.Destination.Host
 			}
 			if outboundRoute.Destination.HostRegex != "" {
-				destination["hostRegex"] = outboundRoute.Destination.HostRegex
+				// AuthBridge router doesn't support hostRegex - use glob pattern in host field
+				route["host"] = outboundRoute.Destination.HostRegex
 			}
-			route["destination"] = destination
+
+			// target_audience is a single string, not array
+			// Take first audience if multiple specified
+			if len(outboundRoute.Audiences) > 0 {
+				route["target_audience"] = outboundRoute.Audiences[0]
+			}
 
 			routes = append(routes, route)
 		}
