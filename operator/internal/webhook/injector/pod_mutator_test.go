@@ -1295,7 +1295,7 @@ func TestEnsurePerAgentConfigMap_EmptyBaseYAML_FallbackFromNsConfig(t *testing.T
 		ClientAuthType:        "client-secret",
 	}
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-service",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-service",
 		ModeProxySidecar, "", nsConfig, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1412,7 +1412,7 @@ pipeline:
             type: spiffe
 `
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
 		ModeEnvoySidecar, baseYAML, &NamespaceConfig{}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1471,7 +1471,7 @@ pipeline:
 		"forward_proxy_addr":    ":8081",
 	}
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
 		ModeProxySidecar, baseYAML, &NamespaceConfig{}, overrides, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1507,7 +1507,7 @@ func TestEnsurePerAgentConfigMap_ExistingCM_OwnedByWebhook_Updated(t *testing.T)
 	m := newTestMutator(existingCM)
 	ctx := context.Background()
 
-	_, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
+	_, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1535,7 +1535,7 @@ func TestEnsurePerAgentConfigMap_ExistingCM_OverwrittenBySSA(t *testing.T) {
 	m := newTestMutator(existingCM)
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1563,7 +1563,7 @@ func TestEnsurePerAgentConfigMap_OwnerReference_SetFromDeployment(t *testing.T) 
 	m := newTestMutator(deploy)
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-service",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-service",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1590,7 +1590,7 @@ func TestEnsurePerAgentConfigMap_OwnerReference_SetFromStatefulSet(t *testing.T)
 	m := newTestMutator(sts)
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-stateful-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-stateful-agent",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1631,7 +1631,7 @@ func TestEnsurePerAgentConfigMap_OwnerReference_SetFromSandbox(t *testing.T) {
 	}
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-sandbox-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-sandbox-agent",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1652,7 +1652,7 @@ func TestEnsurePerAgentConfigMap_OwnerReference_NoWorkload_Skipped(t *testing.T)
 	m := newTestMutator()
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "bare-pod-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "bare-pod-agent",
 		ModeEnvoySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1675,7 +1675,7 @@ func TestEnsurePerAgentConfigMap_FederatedJWT_MapsToSpiffe(t *testing.T) {
 		ClientAuthType: "federated-jwt",
 	}
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
 		ModeEnvoySidecar, "", nsConfig, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1712,7 +1712,7 @@ func TestEnsurePerAgentConfigMap_FederatedJWT_SetsJWTAudience(t *testing.T) {
 		JWTAudience:    "http://keycloak:8080/realms/rossoctl",
 	}
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
 		ModeEnvoySidecar, "", nsConfig, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1735,7 +1735,7 @@ func TestEnsurePerAgentConfigMap_SpireEnabled_InjectsSpiffeBlock(t *testing.T) {
 	m := newTestMutator()
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "spiffe-agent",
 		ModeProxySidecar, "", &NamespaceConfig{}, nil, "", "", true, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1757,7 +1757,7 @@ func TestEnsurePerAgentConfigMap_SpireDisabled_NoSpiffeBlock(t *testing.T) {
 	m := newTestMutator()
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-spiffe-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-spiffe-agent",
 		ModeProxySidecar, "", &NamespaceConfig{}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1788,7 +1788,7 @@ func TestEnsurePerAgentConfigMap_MTLSStrict_RendersBlock(t *testing.T) {
 	m := newTestMutator()
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "mtls-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "mtls-agent",
 		ModeProxySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, MTLSModeStrict, "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1819,7 +1819,7 @@ func TestEnsurePerAgentConfigMap_MTLSPermissive_RendersBlock(t *testing.T) {
 	m := newTestMutator()
 	ctx := context.Background()
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "mtls-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "mtls-agent",
 		ModeProxySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, MTLSModePermissive, "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -1854,7 +1854,7 @@ func TestEnsurePerAgentConfigMap_MTLSDisabled_OmitsBlock(t *testing.T) {
 			m := newTestMutator()
 			ctx := context.Background()
 
-			cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-mtls-"+tt.name,
+			cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-mtls-"+tt.name,
 				ModeProxySidecar, "", &NamespaceConfig{ClientAuthType: "client-secret"}, nil, tt.mtlsMode, "", false, nil)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
@@ -1882,7 +1882,7 @@ func TestEnsurePerAgentConfigMap_MTLSScrubsStaleBlock(t *testing.T) {
 	// ConfigMap that was rendered earlier with mtls on.
 	baseYAML := "mode: proxy-sidecar\nmtls:\n  mode: strict\n"
 
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "scrub-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "scrub-agent",
 		ModeProxySidecar, baseYAML, &NamespaceConfig{ClientAuthType: "client-secret"}, nil, MTLSModeDisabled, "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2103,7 +2103,7 @@ func TestEnsurePerAgentConfigMap_TLSBridgeBlock(t *testing.T) {
 	ctx := context.Background()
 
 	// enabled => tls_bridge: {mode: enabled, ca_dir: <mount>}
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "bridge-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "bridge-agent",
 		ModeProxySidecar, "", &NamespaceConfig{}, nil, "", "enabled", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -2121,7 +2121,7 @@ func TestEnsurePerAgentConfigMap_TLSBridgeBlock(t *testing.T) {
 	}
 
 	// disabled ("") => no tls_bridge block
-	cmName2, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-bridge",
+	cmName2, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "no-bridge",
 		ModeProxySidecar, "", &NamespaceConfig{}, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

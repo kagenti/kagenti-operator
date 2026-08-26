@@ -126,7 +126,7 @@ pipeline:
 	}
 
 	// Call ensurePerAgentConfigMap with the AgentRuntime
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-agent",
 		ModeProxySidecar, baseYAML, nsConfig, nil, "", "", true, agentRuntime)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -250,7 +250,7 @@ pipeline:
 	nsConfig := &NamespaceConfig{}
 
 	// Call with nil agentRuntime
-	cmName, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
+	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "my-agent",
 		ModeProxySidecar, baseYAML, nsConfig, nil, "", "", false, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
