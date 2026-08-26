@@ -126,7 +126,7 @@ pipeline:
 	}
 
 	// Call ensurePerAgentConfigMap with the AgentRuntime
-	cmName, _, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-agent",
+	cmName, routesCMName, err := m.ensurePerAgentConfigMap(ctx, "team1", "weather-agent",
 		ModeProxySidecar, baseYAML, nsConfig, nil, "", "", true, agentRuntime)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -181,9 +181,33 @@ pipeline:
 		t.Fatal("token-exchange plugin not found")
 	}
 
-	routes, ok := tokenExchangeConfig["routes"].([]interface{})
+	// Verify routes is a file reference, not an inline array
+	routesRef, ok := tokenExchangeConfig["routes"].(map[string]interface{})
 	if !ok {
-		t.Fatal("routes not found or not an array")
+		t.Fatal("routes not found or not a map")
+	}
+	if routesRef["file"] != "/etc/authproxy/routes.yaml" {
+		t.Errorf("routes file mismatch: got %v, want /etc/authproxy/routes.yaml", routesRef["file"])
+	}
+
+	// Fetch the routes ConfigMap
+	if routesCMName == "" {
+		t.Fatal("routesCMName is empty")
+	}
+	routesCM := &corev1.ConfigMap{}
+	if err := fakeClient.Get(ctx, client.ObjectKey{Namespace: "team1", Name: routesCMName}, routesCM); err != nil {
+		t.Fatalf("failed to get routes ConfigMap: %v", err)
+	}
+
+	// Parse routes.yaml
+	routesYAML, ok := routesCM.Data["routes.yaml"]
+	if !ok {
+		t.Fatal("routes ConfigMap missing routes.yaml key")
+	}
+
+	var routes []interface{}
+	if err := yaml.Unmarshal([]byte(routesYAML), &routes); err != nil {
+		t.Fatalf("failed to parse routes.yaml: %v", err)
 	}
 
 	// Verify we have 2 routes
@@ -191,26 +215,22 @@ pipeline:
 		t.Fatalf("expected 2 routes, got %d", len(routes))
 	}
 
-	// Verify first route (exact host match)
+	// Verify first route (exact host match) - now in flat format
 	route1, _ := routes[0].(map[string]interface{})
-	dest1, _ := route1["destination"].(map[string]interface{})
-	if dest1["host"] != "weather-tool-mcp.team1.svc.cluster.local" {
-		t.Errorf("route 1 host mismatch: got %v", dest1["host"])
+	if route1["host"] != "weather-tool-mcp.team1.svc.cluster.local" {
+		t.Errorf("route 1 host mismatch: got %v", route1["host"])
 	}
-	audiences1, _ := route1["audiences"].([]interface{})
-	if len(audiences1) != 1 || audiences1[0] != "spiffe://localtest.me/ns/team1/sa/weather-tool" {
-		t.Errorf("route 1 audiences mismatch: got %v", audiences1)
+	if route1["target_audience"] != "spiffe://localtest.me/ns/team1/sa/weather-tool" {
+		t.Errorf("route 1 target_audience mismatch: got %v", route1["target_audience"])
 	}
 
-	// Verify second route (regex match)
+	// Verify second route (regex match) - now in flat format
 	route2, _ := routes[1].(map[string]interface{})
-	dest2, _ := route2["destination"].(map[string]interface{})
-	if dest2["hostRegex"] != `.*\.team1\.svc\.cluster\.local` {
-		t.Errorf("route 2 hostRegex mismatch: got %v", dest2["hostRegex"])
+	if route2["host"] != `.*\.team1\.svc\.cluster\.local` {
+		t.Errorf("route 2 host mismatch: got %v", route2["host"])
 	}
-	audiences2, _ := route2["audiences"].([]interface{})
-	if len(audiences2) != 1 || audiences2[0] != "spiffe://localtest.me/ns/team1/sa/default" {
-		t.Errorf("route 2 audiences mismatch: got %v", audiences2)
+	if route2["target_audience"] != "spiffe://localtest.me/ns/team1/sa/default" {
+		t.Errorf("route 2 target_audience mismatch: got %v", route2["target_audience"])
 	}
 }
 
