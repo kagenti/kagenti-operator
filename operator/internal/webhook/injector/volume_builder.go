@@ -363,7 +363,7 @@ func overrideRoutesConfigMapInVolumes(volumes []corev1.Volume, routesCMName stri
 	result := make([]corev1.Volume, len(volumes))
 	copy(result, volumes)
 	for i := range result {
-		if result[i].Name == "authproxy-routes" && result[i].ConfigMap != nil {
+		if result[i].Name == AuthproxyRoutesConfigMapName && result[i].ConfigMap != nil {
 			cmCopy := *result[i].ConfigMap
 			cmCopy.Name = routesCMName
 			cmCopy.Optional = ptr.To(false) // Routes are required when specified

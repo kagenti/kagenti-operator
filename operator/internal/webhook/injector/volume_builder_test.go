@@ -35,7 +35,7 @@ func TestBuildResolvedVolumes_SpireDisabled(t *testing.T) {
 		names[v.Name] = true
 	}
 
-	for _, expected := range []string{"shared-data", "envoy-config", "authproxy-routes", "authbridge-runtime-config"} {
+	for _, expected := range []string{"shared-data", "envoy-config", AuthproxyRoutesConfigMapName, "authbridge-runtime-config"} {
 		if !names[expected] {
 			t.Errorf("missing volume %q", expected)
 		}
@@ -62,7 +62,7 @@ func TestBuildResolvedVolumes_SpireEnabled(t *testing.T) {
 		names[v.Name] = true
 	}
 
-	for _, expected := range []string{"shared-data", "spire-agent-socket", "spiffe-helper-config", "svid-output", "envoy-config", "authproxy-routes", "authbridge-runtime-config"} {
+	for _, expected := range []string{"shared-data", "spire-agent-socket", "spiffe-helper-config", "svid-output", "envoy-config", AuthproxyRoutesConfigMapName, "authbridge-runtime-config"} {
 		if !names[expected] {
 			t.Errorf("missing volume %q", expected)
 		}
@@ -285,7 +285,7 @@ func TestOverrideRoutesConfigMapInVolumes(t *testing.T) {
 
 			// Original must not be mutated
 			for _, v := range original {
-				if v.Name == "authproxy-routes" && v.ConfigMap != nil {
+				if v.Name == AuthproxyRoutesConfigMapName && v.ConfigMap != nil {
 					if v.ConfigMap.Name != AuthproxyRoutesConfigMapName {
 						t.Errorf("original was mutated: got %q", v.ConfigMap.Name)
 					}
@@ -300,22 +300,22 @@ func TestOverrideRoutesConfigMapInVolumes(t *testing.T) {
 			// Find-and-swap behavior
 			swappedFound := false
 			for _, v := range overridden {
-				if v.Name == "authproxy-routes" && v.ConfigMap != nil {
+				if v.Name == AuthproxyRoutesConfigMapName && v.ConfigMap != nil {
 					swappedFound = true
 					if v.ConfigMap.Name != tt.newCM {
-						t.Errorf("authproxy-routes CM name = %q, want %q", v.ConfigMap.Name, tt.newCM)
+						t.Errorf("%s CM name = %q, want %q", AuthproxyRoutesConfigMapName, v.ConfigMap.Name, tt.newCM)
 					}
 					// Verify Optional is set to false for per-agent routes
 					if v.ConfigMap.Optional == nil || *v.ConfigMap.Optional != false {
-						t.Errorf("authproxy-routes Optional should be false when overridden")
+						t.Errorf("%s Optional should be false when overridden", AuthproxyRoutesConfigMapName)
 					}
 				}
 			}
 			if tt.found && !swappedFound {
-				t.Fatal("expected authproxy-routes volume in overridden but didn't find it")
+				t.Fatalf("expected %s volume in overridden but didn't find it", AuthproxyRoutesConfigMapName)
 			}
 			if !tt.found && swappedFound {
-				t.Fatal("authproxy-routes volume should not have been added")
+				t.Fatalf("%s volume should not have been added", AuthproxyRoutesConfigMapName)
 			}
 		})
 	}
