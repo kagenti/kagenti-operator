@@ -10,11 +10,12 @@ package controller
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -78,9 +79,9 @@ type ClientRegistrationReconciler struct {
 	// the Admin API with manage-clients role. When false, uses admin credentials.
 	UseSpiffeAuth bool
 
-	// JWTSVIDPath is the file path to read the operator's JWT-SVID from.
-	// Only used when UseSpiffeAuth is true. Default: /opt/jwt_svid.token
-	JWTSVIDPath string
+	// SpiffeSocket is the path to the SPIFFE Workload API socket (e.g., unix:///run/spire/sockets/agent.sock).
+	// Only used when UseSpiffeAuth is true. Used to fetch JWT-SVIDs via go-spiffe SDK.
+	SpiffeSocket string
 
 	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/rossoctl-operator-system/sa/...).
 	// Only used when UseSpiffeAuth is true.
@@ -275,36 +276,30 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		jwtSVIDPath := r.JWTSVIDPath
-		if jwtSVIDPath == "" {
-			jwtSVIDPath = "/opt/jwt_svid.token"
-		}
-
-		// Path traversal protection: only allow reading from designated directories
-		cleanPath := filepath.Clean(jwtSVIDPath)
-		if !strings.HasPrefix(cleanPath, "/opt/") && !strings.HasPrefix(cleanPath, "/var/run/secrets/") {
-			err := fmt.Errorf("JWT-SVID path %q outside allowed directories (/opt/, /var/run/secrets/)", jwtSVIDPath)
-			logger.Error(err, "invalid JWT-SVID path")
+		if r.SpiffeSocket == "" {
+			err := fmt.Errorf("SpiffeSocket is required when UseSpiffeAuth=true")
+			logger.Error(err, "missing SPIFFE socket path")
 			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "InvalidJWTSVIDPath",
-					"JWT-SVID path %q rejected: must be under /opt/ or /var/run/secrets/", jwtSVIDPath)
+				r.Recorder.Event(owner, corev1.EventTypeWarning, "SpiffeSocketMissing",
+					"UseSpiffeAuth=true but SpiffeSocket is empty. Check operator configuration.")
 			}
-			return ctrl.Result{}, err // fail permanently on config error
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		jwtSVID, err := os.ReadFile(cleanPath)
+		// Fetch JWT-SVID from SPIRE via Workload API
+		jwtSVID, err := r.fetchJWTSVID(ctx, ab.KeycloakRealm)
 		if err != nil {
-			logger.Error(err, "read JWT-SVID failed", "path", cleanPath)
+			logger.Error(err, "JWT-SVID fetch failed")
 			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDReadFailed",
-					"Failed to read JWT-SVID from %s: %v. Check spiffe-helper sidecar configuration.", cleanPath, err)
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDFetchFailed",
+					"Failed to fetch JWT-SVID from SPIRE: %v", err)
 			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		// WARNING: JWT-SVID is a bearer token - must never appear in logs or error messages
 		// to prevent token exposure. All code paths must handle jwtSVID as sensitive data.
-		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, string(jwtSVID))
+		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, jwtSVID)
 		if err != nil {
 			logger.Error(err, "Keycloak JWT-SVID authentication failed")
 			if r.Recorder != nil {
@@ -617,4 +612,23 @@ func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 	}
 
 	return b.Complete(r)
+}
+
+// fetchJWTSVID fetches a JWT-SVID from the SPIRE Workload API for the given audience.
+// Returns the JWT token as a string or an error if fetching fails.
+func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audience string) (string, error) {
+	client, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
+	if err != nil {
+		return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
+	}
+	defer client.Close()
+
+	svid, err := client.FetchJWTSVID(ctx, jwtsvid.Params{
+		Audience: audience,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch JWT-SVID: %w", err)
+	}
+
+	return svid.Marshal(), nil
 }
