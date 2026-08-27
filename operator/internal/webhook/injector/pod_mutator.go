@@ -1360,7 +1360,6 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 			routes = append(routes, route)
 		}
 
-		var err error
 		routesData, err = yaml.Marshal(routes)
 		if err != nil {
 			return "", "", fmt.Errorf("failed to marshal routes for %s/%s: %w", namespace, crName, err)
