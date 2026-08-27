@@ -621,7 +621,12 @@ func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audienc
 	if err != nil {
 		return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
 	}
-	defer client.Close()
+	defer func() {
+		if closeErr := client.Close(); closeErr != nil {
+			// Log close error but don't override the function's return error
+			ctrl.Log.WithName("fetchJWTSVID").Error(closeErr, "failed to close SPIFFE Workload API client")
+		}
+	}()
 
 	svid, err := client.FetchJWTSVID(ctx, jwtsvid.Params{
 		Audience: audience,
