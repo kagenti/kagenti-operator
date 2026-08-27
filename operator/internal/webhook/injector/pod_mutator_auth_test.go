@@ -186,8 +186,8 @@ pipeline:
 	if !ok {
 		t.Fatal("routes not found or not a map")
 	}
-	if routesRef["file"] != "/etc/authproxy/routes.yaml" {
-		t.Errorf("routes file mismatch: got %v, want /etc/authproxy/routes.yaml", routesRef["file"])
+	if routesRef["file"] != AuthProxyRoutesFile {
+		t.Errorf("routes file mismatch: got %v, want %s", routesRef["file"], AuthProxyRoutesFile)
 	}
 
 	// Fetch the routes ConfigMap

@@ -37,6 +37,12 @@ const (
 	AuthproxyRoutesConfigMapName   = "authproxy-routes"
 )
 
+// AuthBridge sidecar container paths.
+const (
+	AuthProxyMountPath  = "/etc/authproxy"
+	AuthProxyRoutesFile = AuthProxyMountPath + "/routes.yaml"
+)
+
 // NamespaceConfig holds resolved values from namespace ConfigMaps/Secrets.
 type NamespaceConfig struct {
 	// From "authbridge-config" ConfigMap

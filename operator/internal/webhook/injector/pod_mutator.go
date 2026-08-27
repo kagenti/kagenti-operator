@@ -1313,7 +1313,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 
 							// Set routes to reference external file
 							pluginConfig["routes"] = map[string]interface{}{
-								"file": "/etc/authproxy/routes.yaml",
+								"file": AuthProxyRoutesFile,
 							}
 
 							mutatorLog.Info("configured token-exchange to read routes from file",
@@ -1345,6 +1345,16 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 			// Take first audience if multiple specified
 			if len(outboundRoute.Audiences) > 0 {
 				route["target_audience"] = outboundRoute.Audiences[0]
+
+				// Warn if multiple audiences specified (only first is used)
+				// See https://github.com/rossoctl/operator/issues/518
+				if len(outboundRoute.Audiences) > 1 {
+					mutatorLog.Info("multiple audiences specified but only first will be used",
+						"namespace", namespace, "crName", crName,
+						"route", outboundRoute.Destination.Host,
+						"audiences", outboundRoute.Audiences,
+						"using", outboundRoute.Audiences[0])
+				}
 			}
 
 			routes = append(routes, route)
