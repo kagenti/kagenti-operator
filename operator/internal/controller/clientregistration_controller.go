@@ -287,7 +287,9 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		}
 
 		// Fetch JWT-SVID from SPIRE via Workload API
-		jwtSVID, err := r.fetchJWTSVID(ctx, ab.KeycloakRealm)
+		// The audience must be the Keycloak token endpoint URL for JWT-SPIFFE authentication
+		tokenEndpoint := strings.TrimSuffix(ab.KeycloakURL, "/") + "/realms/" + ab.KeycloakRealm + "/protocol/openid-connect/token"
+		jwtSVID, err := r.fetchJWTSVID(ctx, tokenEndpoint)
 		if err != nil {
 			logger.Error(err, "JWT-SVID fetch failed")
 			if r.Recorder != nil {
