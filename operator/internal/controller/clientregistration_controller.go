@@ -9,7 +9,9 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -287,9 +289,20 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 		}
 
 		// Fetch JWT-SVID from SPIRE via Workload API
-		// The audience must be the Keycloak token endpoint URL for JWT-SPIFFE authentication
-		tokenEndpoint := strings.TrimSuffix(ab.KeycloakURL, "/") + "/realms/" + ab.KeycloakRealm + "/protocol/openid-connect/token"
-		jwtSVID, err := r.fetchJWTSVID(ctx, tokenEndpoint)
+		// Per RFC 7523 and Keycloak SPIFFE authentication: the JWT audience must match
+		// Keycloak's realm issuer URL exactly. Query the OIDC discovery endpoint to get
+		// the authoritative issuer value, since it may differ from the in-cluster service URL.
+		realmIssuer, err := r.getKeycloakIssuer(ctx, ab.KeycloakURL, ab.KeycloakRealm)
+		if err != nil {
+			logger.Error(err, "Failed to get Keycloak issuer URL")
+			if r.Recorder != nil {
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "IssuerLookupFailed",
+					"Failed to query Keycloak OIDC discovery: %v", err)
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
+		jwtSVID, err := r.fetchJWTSVID(ctx, realmIssuer)
 		if err != nil {
 			logger.Error(err, "JWT-SVID fetch failed")
 			if r.Recorder != nil {
@@ -638,4 +651,40 @@ func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audienc
 	}
 
 	return svid.Marshal(), nil
+}
+
+// getKeycloakIssuer queries the Keycloak OIDC discovery endpoint to get the authoritative
+// issuer URL. This is necessary because the issuer may be a public URL (e.g., keycloak.localtest.me)
+// while the KeycloakURL in authbridge-config is the in-cluster service address.
+func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, keycloakURL, realm string) (string, error) {
+	discoveryURL := strings.TrimSuffix(keycloakURL, "/") + "/realms/" + realm + "/.well-known/openid-configuration"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create OIDC discovery request: %w", err)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to query OIDC discovery endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OIDC discovery returned status %d", resp.StatusCode)
+	}
+
+	var config struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return "", fmt.Errorf("failed to decode OIDC discovery response: %w", err)
+	}
+
+	if config.Issuer == "" {
+		return "", fmt.Errorf("OIDC discovery response missing issuer field")
+	}
+
+	return config.Issuer, nil
 }
