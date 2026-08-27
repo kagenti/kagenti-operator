@@ -669,7 +669,11 @@ func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, ke
 	if err != nil {
 		return "", fmt.Errorf("failed to query OIDC discovery endpoint: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			ctrl.Log.WithName("getKeycloakIssuer").Error(closeErr, "failed to close response body")
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("OIDC discovery returned status %d", resp.StatusCode)
