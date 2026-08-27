@@ -1337,7 +1337,13 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 				route["host"] = outboundRoute.Destination.Host
 			}
 			if outboundRoute.Destination.HostRegex != "" {
-				// AuthBridge router doesn't support hostRegex - use glob pattern in host field
+				// AuthBridge router uses glob patterns, not regex. The CRD field name
+				// "hostRegex" is misleading - it should contain glob syntax (*.example.com),
+				// not regex syntax (.*\.example\.com). Warn users about this.
+				mutatorLog.Info("hostRegex field is mapped to AuthBridge glob pattern (not regex)",
+					"namespace", namespace, "crName", crName,
+					"hostRegex", outboundRoute.Destination.HostRegex,
+					"note", "use glob syntax like '*.team1.svc.cluster.local', not regex '.*\\.team1\\.svc\\.cluster\\.local'")
 				route["host"] = outboundRoute.Destination.HostRegex
 			}
 
