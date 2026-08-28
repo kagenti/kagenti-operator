@@ -94,6 +94,11 @@ type ClientRegistrationReconciler struct {
 	// OIDC discovery HTTP requests on every reconcile. The issuer is stable per realm.
 	keycloakIssuerCache sync.Map // map[string]string
 
+	// httpClient is reused for OIDC discovery requests to avoid allocating a new client
+	// on every getKeycloakIssuer call. In practice this is only called once per realm
+	// thanks to keycloakIssuerCache, but reusing the client makes the intent clearer.
+	httpClient *http.Client
+
 	// workloadAPIClientMu protects workloadAPIClient initialization
 	workloadAPIClientMu sync.Mutex
 	// workloadAPIClient is a reused connection to the SPIRE Workload API to avoid
@@ -617,6 +622,9 @@ func clientRegistrationWorkloadPredicate(obj client.Object) bool {
 // SetupWithManager registers the controller. injectTools is resolved at reconcile time from cluster
 // feature gates; the predicate uses injectTools=true so tool workloads are not dropped before gates load.
 func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Initialize reusable HTTP client for OIDC discovery
+	r.httpClient = &http.Client{Timeout: 10 * time.Second}
+
 	pred := predicate.NewPredicateFuncs(clientRegistrationWorkloadPredicate)
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("clientregistration").
@@ -649,8 +657,9 @@ func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audienc
 	r.workloadAPIClientMu.Lock()
 	if r.workloadAPIClient == nil {
 		r.workloadAPIClientMu.Unlock()
-		// Dial outside the critical section
-		newClient, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
+		// Dial with background context so the cached client outlives any single reconcile
+		dialCtx := context.Background()
+		newClient, err := workloadapi.New(dialCtx, workloadapi.WithAddr(r.SpiffeSocket))
 		if err != nil {
 			return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
 		}
@@ -701,8 +710,7 @@ func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, ke
 		return "", fmt.Errorf("failed to create OIDC discovery request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := r.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to query OIDC discovery endpoint: %w", err)
 	}

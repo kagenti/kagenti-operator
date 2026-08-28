@@ -48,6 +48,8 @@ spec:
             {{- end }}
             {{- if .Values.verifiedFetch.enabled }}
             - "--enable-verified-fetch=true"
+            {{- end }}
+            {{- if or .Values.verifiedFetch.enabled (and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled) }}
             - "--verified-fetch-spiffe-socket={{ .Values.verifiedFetch.spiffeEndpointSocket }}"
             {{- end }}
             {{- if or .Values.enforceNetworkPolicies .Values.signatureVerification.enforceNetworkPolicies }}
