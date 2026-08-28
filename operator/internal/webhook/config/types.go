@@ -18,6 +18,7 @@ type PlatformConfig struct {
 	TokenExchange TokenExchangeDefaults `json:"tokenExchange" yaml:"tokenExchange"`
 	Spiffe        SpiffeConfig          `json:"spiffe" yaml:"spiffe"`
 	Observability ObservabilityConfig   `json:"observability" yaml:"observability"`
+	IBAC          IBACConfig            `json:"ibac" yaml:"ibac"`
 }
 
 type ImageConfig struct {
@@ -108,6 +109,34 @@ type SpiffeConfig struct {
 type ObservabilityConfig struct {
 	LogLevel      string `json:"logLevel" yaml:"logLevel"`
 	EnableMetrics bool   `json:"enableMetrics" yaml:"enableMetrics"`
+}
+
+// IBACConfig holds the platform-level settings the operator stamps into the
+// ibac plugin's config when a workload selects an AuthBridge preset that
+// includes ibac (ibac-only / full). These are the LLM "judge" the ibac plugin
+// calls to decide whether an outbound action matches the user's intent.
+//
+// JudgeEndpoint/JudgeModel must be set for ibac to enforce — an ibac plugin
+// rendered without a judge_endpoint fails the sidecar's config reload. When
+// they are empty the operator still emits the plugin (so the pipeline shape is
+// correct) but logs a warning; the preset should be configured before use.
+//
+// The ibac judge system prompt is baked into the operator binary
+// (ibacSystemPrompt in pod_mutator.go), not sourced from here.
+type IBACConfig struct {
+	// JudgeEndpoint is the OpenAI-compatible base URL of the judge LLM,
+	// e.g. "http://litellm.rossoctl-system.svc.cluster.local:4000".
+	JudgeEndpoint string `json:"judgeEndpoint" yaml:"judgeEndpoint"`
+	// JudgeModel is the model id the judge call uses, e.g. "llama3.2:3b".
+	JudgeModel string `json:"judgeModel" yaml:"judgeModel"`
+	// TimeoutMS bounds the judge call. Defaults to 15000 when unset.
+	TimeoutMS int `json:"timeoutMs" yaml:"timeoutMs"`
+	// AgentLLMHost optionally names the agent's own LLM host so the judge can
+	// distinguish agent LLM traffic from tool traffic. Omitted when empty.
+	AgentLLMHost string `json:"agentLlmHost" yaml:"agentLlmHost"`
+	// JudgeBearer optionally supplies the bearer token for the judge endpoint.
+	// Omitted when empty.
+	JudgeBearer string `json:"judgeBearer" yaml:"judgeBearer"`
 }
 
 // DeepCopy creates a copy of the config

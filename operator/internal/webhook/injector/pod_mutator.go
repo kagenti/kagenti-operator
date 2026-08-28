@@ -1208,6 +1208,38 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 		cfg["pipeline"] = synthesizePipeline(nsConfig)
 	}
 
+	// AuthBridge layer-3 preset (spec.pluginPreset): render the full canonical
+	// pipeline, seeding per-plugin config from whatever base pipeline is present
+	// (chart-provided or synthesized just above) so jwt-validation/token-exchange
+	// identity config survives. Overrides the default 2-plugin synthesis.
+	if agentRuntime != nil && agentRuntime.Spec.PluginPreset != "" {
+		basePipeline, _ := cfg["pipeline"].(map[string]interface{})
+		var ibacCfg config.IBACConfig
+		if pc := m.GetPlatformConfig(); pc != nil {
+			ibacCfg = pc.IBAC
+		}
+		presetPipeline, warnings, err := synthesizePresetPipeline(
+			basePipeline,
+			agentRuntime.Spec.PluginPreset,
+			agentRuntime.Spec.Plugins,
+			agentRuntime.Spec.OnError,
+			ibacCfg,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to render plugin preset %q for %s/%s: %w",
+				agentRuntime.Spec.PluginPreset, namespace, crName, err)
+		}
+		for _, w := range warnings {
+			mutatorLog.Info("WARN: "+w, "namespace", namespace, "crName", crName)
+		}
+		cfg["pipeline"] = presetPipeline
+		mutatorLog.Info("rendered AuthBridge plugin preset",
+			"namespace", namespace, "crName", crName,
+			"preset", agentRuntime.Spec.PluginPreset,
+			"pluginOverrides", agentRuntime.Spec.Plugins,
+			"onError", agentRuntime.Spec.OnError)
+	}
+
 	// Override mode
 	cfg["mode"] = mode
 
