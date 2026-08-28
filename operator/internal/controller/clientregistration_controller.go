@@ -644,15 +644,24 @@ func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 // Returns the JWT token as a string or an error if fetching fails.
 // Reuses a long-lived workloadapi.Client to avoid gRPC connection churn on frequent reconciles.
 func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audience string) (string, error) {
-	// Lazily initialize the workloadapi.Client
+	// Lazily initialize the workloadapi.Client using double-checked locking
+	// to avoid holding the mutex during the slow gRPC dial.
 	r.workloadAPIClientMu.Lock()
 	if r.workloadAPIClient == nil {
-		client, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
+		r.workloadAPIClientMu.Unlock()
+		// Dial outside the critical section
+		newClient, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
 		if err != nil {
-			r.workloadAPIClientMu.Unlock()
 			return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
 		}
-		r.workloadAPIClient = client
+		// Re-acquire lock to store (another goroutine may have initialized in the meantime)
+		r.workloadAPIClientMu.Lock()
+		if r.workloadAPIClient == nil {
+			r.workloadAPIClient = newClient
+		} else {
+			// Another goroutine won the race, close our client
+			_ = newClient.Close()
+		}
 	}
 	client := r.workloadAPIClient
 	r.workloadAPIClientMu.Unlock()
@@ -661,6 +670,13 @@ func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audienc
 		Audience: audience,
 	})
 	if err != nil {
+		// Clear the cached client on fetch error (likely disconnected) so next reconcile re-dials
+		r.workloadAPIClientMu.Lock()
+		if r.workloadAPIClient == client {
+			_ = r.workloadAPIClient.Close()
+			r.workloadAPIClient = nil
+		}
+		r.workloadAPIClientMu.Unlock()
 		return "", fmt.Errorf("failed to fetch JWT-SVID: %w", err)
 	}
 
