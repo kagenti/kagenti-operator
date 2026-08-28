@@ -773,7 +773,7 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 			listenerOverrides["reverse_proxy_addr"] = fmt.Sprintf(":%d", originalAgentPort)
 			listenerOverrides["reverse_proxy_backend"] = fmt.Sprintf("http://127.0.0.1:%d", newAgentPort)
 		}
-		perAgentCMName, err := m.ensurePerAgentConfigMap(ctx, namespace, crName,
+		perAgentCMName, routesCMName, err := m.ensurePerAgentConfigMap(ctx, namespace, crName,
 			ModeProxySidecar, nsConfig.AuthBridgeRuntimeYAML, nsConfig,
 			listenerOverrides,
 			mtlsMode, tlsBridgeMode, spireEnabled, agentRuntime)
@@ -875,6 +875,12 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 		// requiredVolumes is always set above (resolved or legacy path) before
 		// the mode switch, so it is never nil here.
 		proxyVolumes := overrideAuthBridgeConfigMapInVolumes(requiredVolumes, perAgentCMName)
+
+		// Override authproxy-routes volume if routes ConfigMap was created
+		if routesCMName != "" {
+			proxyVolumes = overrideRoutesConfigMapInVolumes(proxyVolumes, routesCMName)
+		}
+
 		for i := range proxyVolumes {
 			if !volumeExists(podSpec.Volumes, proxyVolumes[i].Name) {
 				podSpec.Volumes = append(podSpec.Volumes, proxyVolumes[i])
@@ -945,12 +951,17 @@ func (m *PodMutator) InjectAuthBridge(ctx context.Context, podSpec *corev1.PodSp
 	// data plane terminates the actual TLS — DownstreamTlsContext on the
 	// inbound listener (gated on MTLSEnabled) and UpstreamTlsContext on
 	// original_destination_tls (strict only).
-	perAgentCMName, err := m.ensurePerAgentConfigMap(ctx, namespace, crName,
+	perAgentCMName, routesCMName, err := m.ensurePerAgentConfigMap(ctx, namespace, crName,
 		ModeEnvoySidecar, nsConfig.AuthBridgeRuntimeYAML, nsConfig, nil, mtlsMode, "", spireEnabled, agentRuntime) // bridge never runs under envoy-sidecar
 	if err != nil {
 		return false, fmt.Errorf("envoy-sidecar per-agent ConfigMap: %w", err)
 	}
 	requiredVolumes = overrideAuthBridgeConfigMapInVolumes(requiredVolumes, perAgentCMName)
+
+	// Override authproxy-routes volume if routes ConfigMap was created
+	if routesCMName != "" {
+		requiredVolumes = overrideRoutesConfigMapInVolumes(requiredVolumes, routesCMName)
+	}
 
 	resolvedForEnvoy := ResolveConfig(currentConfig, nsConfig)
 	resolvedForEnvoy.MTLSMode = mtlsMode
@@ -1174,7 +1185,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 	tlsBridgeMode string,
 	spireEnabled bool,
 	agentRuntime *agentv1alpha1.AgentRuntime,
-) (string, error) {
+) (configCMName string, routesCMName string, err error) {
 	cmName := perAgentConfigMapName(crName)
 
 	// Parse the base YAML into a generic map
@@ -1263,10 +1274,14 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 	// Routes tell AuthBridge which audiences to request when calling specific
 	// destinations. Routes are only effective when the namespace is configured
 	// with SPIFFE authentication (CLIENT_AUTH_TYPE=federated-jwt).
+	//
+	// Routes are written to a separate ConfigMap and mounted at /etc/authproxy/routes.yaml.
+	// The config.yaml references the file path rather than containing routes inline.
+	var routesData []byte
 	if agentRuntime != nil && agentRuntime.Spec.Auth != nil &&
 		len(agentRuntime.Spec.Auth.Outbound) > 0 {
 
-		// Navigate to pipeline.outbound.plugins[token-exchange].config
+		// Configure token-exchange plugin to read routes from file
 		pipeline, _ := cfg["pipeline"].(map[string]interface{})
 		if pipeline == nil {
 			mutatorLog.Info("WARN: no pipeline block found, cannot inject routes",
@@ -1282,7 +1297,7 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 					mutatorLog.Info("WARN: no outbound plugins found, cannot inject routes",
 						"namespace", namespace, "crName", crName)
 				} else {
-					// Find the token-exchange plugin
+					// Find the token-exchange plugin and configure it to read routes from file
 					for i := range plugins {
 						plugin, _ := plugins[i].(map[string]interface{})
 						if plugin == nil {
@@ -1296,41 +1311,71 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 								plugin["config"] = pluginConfig
 							}
 
-							// Generate routes from spec.auth.outbound
-							routes := make([]interface{}, 0, len(agentRuntime.Spec.Auth.Outbound))
-							for _, outboundRoute := range agentRuntime.Spec.Auth.Outbound {
-								route := map[string]interface{}{
-									"audiences": outboundRoute.Audiences,
-								}
-
-								// Add destination match (host or hostRegex)
-								destination := make(map[string]interface{})
-								if outboundRoute.Destination.Host != "" {
-									destination["host"] = outboundRoute.Destination.Host
-								}
-								if outboundRoute.Destination.HostRegex != "" {
-									destination["hostRegex"] = outboundRoute.Destination.HostRegex
-								}
-								route["destination"] = destination
-
-								routes = append(routes, route)
+							// Set routes to reference external file
+							pluginConfig["routes"] = map[string]interface{}{
+								"file": AuthProxyRoutesFile,
 							}
 
-							pluginConfig["routes"] = routes
-							mutatorLog.Info("injected token-exchange routes from AgentRuntime spec.auth",
-								"namespace", namespace, "crName", crName, "routeCount", len(routes))
+							mutatorLog.Info("configured token-exchange to read routes from file",
+								"namespace", namespace, "crName", crName, "routeCount", len(agentRuntime.Spec.Auth.Outbound))
 							break
 						}
 					}
 				}
 			}
 		}
+
+		// Generate routes.yaml content in AuthBridge's routing.Route format:
+		// - host: "hostname"  (flat, not nested under destination)
+		// - target_audience: "audience"  (single string, not audiences array)
+		routes := make([]interface{}, 0, len(agentRuntime.Spec.Auth.Outbound))
+		for _, outboundRoute := range agentRuntime.Spec.Auth.Outbound {
+			route := make(map[string]interface{})
+
+			// Host or HostRegex (flat fields, not nested)
+			if outboundRoute.Destination.Host != "" {
+				route["host"] = outboundRoute.Destination.Host
+			}
+			if outboundRoute.Destination.HostRegex != "" {
+				// AuthBridge router uses glob patterns, not regex. The CRD field name
+				// "hostRegex" is misleading - it should contain glob syntax (*.example.com),
+				// not regex syntax (.*\.example\.com). Warn users about this.
+				mutatorLog.Info("hostRegex field is mapped to AuthBridge glob pattern (not regex)",
+					"namespace", namespace, "crName", crName,
+					"hostRegex", outboundRoute.Destination.HostRegex,
+					"note", "use glob syntax like '*.team1.svc.cluster.local', not regex '.*\\.team1\\.svc\\.cluster\\.local'")
+				route["host"] = outboundRoute.Destination.HostRegex
+			}
+
+			// target_audience is a single string, not array
+			// Take first audience if multiple specified
+			if len(outboundRoute.Audiences) > 0 {
+				route["target_audience"] = outboundRoute.Audiences[0]
+
+				// Warn if multiple audiences specified (only first is used)
+				// See https://github.com/rossoctl/operator/issues/518
+				if len(outboundRoute.Audiences) > 1 {
+					mutatorLog.Info("multiple audiences specified but only first will be used",
+						"namespace", namespace, "crName", crName,
+						"route", outboundRoute.Destination.Host,
+						"audiences", outboundRoute.Audiences,
+						"using", outboundRoute.Audiences[0])
+				}
+			}
+
+			routes = append(routes, route)
+		}
+
+		routesData, err = yaml.Marshal(routes)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to marshal routes for %s/%s: %w", namespace, crName, err)
+		}
 	}
 
 	// Marshal back to YAML
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal per-agent config for %s/%s: %w", namespace, crName, err)
+		return "", "", fmt.Errorf("failed to marshal per-agent config for %s/%s: %w", namespace, crName, err)
 	}
 
 	// Server-side apply: atomic create-or-update in a single API call.
@@ -1346,12 +1391,32 @@ func (m *PodMutator) ensurePerAgentConfigMap(
 	}
 
 	if err := m.Client.Apply(ctx, cmApply, client.FieldOwner("rossoctl-webhook"), client.ForceOwnership); err != nil {
-		return "", fmt.Errorf("failed to apply per-agent ConfigMap %s/%s: %w", namespace, cmName, err)
+		return "", "", fmt.Errorf("failed to apply per-agent ConfigMap %s/%s: %w", namespace, cmName, err)
 	}
 	mutatorLog.Info("Applied per-agent ConfigMap",
 		"namespace", namespace, "name", cmName, "mode", mode, "mtlsMode", mtlsMode)
 
-	return cmName, nil
+	// Create separate routes ConfigMap if routes are present
+	if len(routesData) > 0 {
+		routesCMName := "authbridge-routes-" + crName
+		routesCMApply := applyconfigscorev1.ConfigMap(routesCMName, namespace).
+			WithLabels(map[string]string{managedByLabel: managedByValue}).
+			WithData(map[string]string{"routes.yaml": string(routesData)})
+
+		// Set same OwnerReference for garbage collection
+		if ownerRef := m.buildOwnerReference(ctx, namespace, crName); ownerRef != nil {
+			routesCMApply = routesCMApply.WithOwnerReferences(ownerRef)
+		}
+
+		if err := m.Client.Apply(ctx, routesCMApply, client.FieldOwner("rossoctl-webhook"), client.ForceOwnership); err != nil {
+			return "", "", fmt.Errorf("failed to apply routes ConfigMap %s/%s: %w", namespace, routesCMName, err)
+		}
+		mutatorLog.Info("Applied routes ConfigMap",
+			"namespace", namespace, "name", routesCMName, "routeCount", len(agentRuntime.Spec.Auth.Outbound))
+		return cmName, routesCMName, nil
+	}
+
+	return cmName, "", nil
 }
 
 // ensurePerAgentEnvoyConfigMap renders an envoy.yaml from the

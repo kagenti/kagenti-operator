@@ -35,7 +35,7 @@ func TestBuildResolvedVolumes_SpireDisabled(t *testing.T) {
 		names[v.Name] = true
 	}
 
-	for _, expected := range []string{"shared-data", "envoy-config", "authproxy-routes", "authbridge-runtime-config"} {
+	for _, expected := range []string{"shared-data", "envoy-config", AuthproxyRoutesConfigMapName, "authbridge-runtime-config"} {
 		if !names[expected] {
 			t.Errorf("missing volume %q", expected)
 		}
@@ -62,7 +62,7 @@ func TestBuildResolvedVolumes_SpireEnabled(t *testing.T) {
 		names[v.Name] = true
 	}
 
-	for _, expected := range []string{"shared-data", "spire-agent-socket", "spiffe-helper-config", "svid-output", "envoy-config", "authproxy-routes", "authbridge-runtime-config"} {
+	for _, expected := range []string{"shared-data", "spire-agent-socket", "spiffe-helper-config", "svid-output", "envoy-config", AuthproxyRoutesConfigMapName, "authbridge-runtime-config"} {
 		if !names[expected] {
 			t.Errorf("missing volume %q", expected)
 		}
@@ -242,6 +242,80 @@ func TestOverrideEnvoyConfigMapInVolumes(t *testing.T) {
 			}
 			if !tt.found && swappedFound {
 				t.Fatal("envoy-config volume should not have been added")
+			}
+		})
+	}
+}
+
+// TestOverrideRoutesConfigMapInVolumes verifies the per-agent routes override:
+// when AgentRuntime has spec.auth.outbound routes, the authproxy-routes volume
+// is redirected to authbridge-routes-<crName> without mutating the input.
+func TestOverrideRoutesConfigMapInVolumes(t *testing.T) {
+	tests := []struct {
+		name    string
+		volumes func() []corev1.Volume
+		newCM   string
+		found   bool
+	}{
+		{
+			name: "volume found, name swapped",
+			volumes: func() []corev1.Volume {
+				return BuildRequiredVolumes()
+			},
+			newCM: "authbridge-routes-my-agent",
+			found: true,
+		},
+		{
+			name: "no authproxy-routes volume, list unchanged",
+			volumes: func() []corev1.Volume {
+				return []corev1.Volume{{
+					Name:         "shared-data",
+					VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+				}}
+			},
+			newCM: "authbridge-routes-my-agent",
+			found: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			original := tt.volumes()
+			overridden := overrideRoutesConfigMapInVolumes(original, tt.newCM)
+
+			// Original must not be mutated
+			for _, v := range original {
+				if v.Name == AuthproxyRoutesConfigMapName && v.ConfigMap != nil {
+					if v.ConfigMap.Name != AuthproxyRoutesConfigMapName {
+						t.Errorf("original was mutated: got %q", v.ConfigMap.Name)
+					}
+				}
+			}
+
+			// Output length matches input length
+			if len(overridden) != len(original) {
+				t.Fatalf("overridden length = %d, want %d", len(overridden), len(original))
+			}
+
+			// Find-and-swap behavior
+			swappedFound := false
+			for _, v := range overridden {
+				if v.Name == AuthproxyRoutesConfigMapName && v.ConfigMap != nil {
+					swappedFound = true
+					if v.ConfigMap.Name != tt.newCM {
+						t.Errorf("%s CM name = %q, want %q", AuthproxyRoutesConfigMapName, v.ConfigMap.Name, tt.newCM)
+					}
+					// Verify Optional is set to false for per-agent routes
+					if v.ConfigMap.Optional == nil || *v.ConfigMap.Optional != false {
+						t.Errorf("%s Optional should be false when overridden", AuthproxyRoutesConfigMapName)
+					}
+				}
+			}
+			if tt.found && !swappedFound {
+				t.Fatalf("expected %s volume in overridden but didn't find it", AuthproxyRoutesConfigMapName)
+			}
+			if !tt.found && swappedFound {
+				t.Fatalf("%s volume should not have been added", AuthproxyRoutesConfigMapName)
 			}
 		})
 	}

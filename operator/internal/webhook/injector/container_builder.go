@@ -100,7 +100,7 @@ func (b *ContainerBuilder) BuildEnvoyProxyContainerWithSpireOption(spireEnabled 
 		},
 		{
 			Name:      "authproxy-routes",
-			MountPath: "/etc/authproxy",
+			MountPath: AuthProxyMountPath,
 			ReadOnly:  true,
 		},
 		{
@@ -266,7 +266,7 @@ func (b *ContainerBuilder) buildProxySidecarContainer(spireEnabled bool, image, 
 		},
 		{
 			Name:      AuthproxyRoutesConfigMapName,
-			MountPath: "/etc/authproxy",
+			MountPath: AuthProxyMountPath,
 			ReadOnly:  true,
 		},
 	}
@@ -345,7 +345,7 @@ func (b *ContainerBuilder) buildEnvoyProxyEnvResolved() []corev1.EnvVar {
 		{Name: "TARGET_SCOPES", Value: b.resolved.TargetScopes},
 		{Name: "CLIENT_ID_FILE", Value: "/shared/client-id.txt"},
 		{Name: "CLIENT_SECRET_FILE", Value: "/shared/client-secret.txt"},
-		{Name: "ROUTES_CONFIG_PATH", Value: "/etc/authproxy/routes.yaml"},
+		{Name: "ROUTES_CONFIG_PATH", Value: AuthProxyRoutesFile},
 		{Name: "DEFAULT_OUTBOUND_POLICY", Value: b.resolved.DefaultOutboundPolicy},
 	}
 }
@@ -433,7 +433,7 @@ func (b *ContainerBuilder) buildEnvoyProxyEnvLegacy() []corev1.EnvVar {
 		},
 		{
 			Name:  "ROUTES_CONFIG_PATH",
-			Value: "/etc/authproxy/routes.yaml",
+			Value: AuthProxyRoutesFile,
 		},
 		{
 			Name: "DEFAULT_OUTBOUND_POLICY",
