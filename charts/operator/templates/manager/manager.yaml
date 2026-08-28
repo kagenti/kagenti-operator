@@ -48,6 +48,8 @@ spec:
             {{- end }}
             {{- if .Values.verifiedFetch.enabled }}
             - "--enable-verified-fetch=true"
+            {{- end }}
+            {{- if or .Values.verifiedFetch.enabled (and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled) }}
             - "--verified-fetch-spiffe-socket={{ .Values.verifiedFetch.spiffeEndpointSocket }}"
             {{- end }}
             {{- if or .Values.enforceNetworkPolicies .Values.signatureVerification.enforceNetworkPolicies }}
@@ -118,7 +120,6 @@ spec:
             {{- end }}
             {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
             - "--use-spiffe-auth=true"
-            - "--jwt-svid-path={{ .Values.spiffe.operatorAuth.jwtSVIDPath | default "/opt/jwt_svid.token" }}"
             - "--operator-client-id=spiffe://{{ .Values.signatureVerification.spireTrustDomain | default "localtest.me" }}/ns/{{ .Release.Namespace }}/sa/{{ .Values.controllerManager.serviceAccountName }}"
             {{- end }}
           command:
@@ -181,47 +182,11 @@ spec:
               mountPath: /tmp/k8s-metrics-server/metrics-certs
               readOnly: true
             {{- end }}
-            {{- if .Values.verifiedFetch.enabled }}
+            {{- if or .Values.verifiedFetch.enabled (and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled) }}
             - name: spiffe-workload-api
               mountPath: /spiffe-workload-api
               readOnly: true
             {{- end }}
-            {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
-            - name: jwt-svid
-              mountPath: /opt
-              readOnly: true
-            {{- end }}
-        {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
-        - name: spiffe-helper
-          image: ghcr.io/spiffe/spiffe-helper:0.11.0
-          imagePullPolicy: IfNotPresent
-          args:
-            - "-config"
-            - "/etc/spiffe-helper/config.hcl"
-          volumeMounts:
-            - name: spiffe-workload-api
-              mountPath: /spiffe-workload-api
-              readOnly: true
-            - name: spiffe-helper-config
-              mountPath: /etc/spiffe-helper
-              readOnly: true
-            - name: jwt-svid
-              mountPath: /opt
-          securityContext:
-            allowPrivilegeEscalation: false
-            runAsNonRoot: true
-            runAsUser: 65532
-            capabilities:
-              drop:
-                - ALL
-          resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
-        {{- end }}
       securityContext:
         {{- toYaml .Values.controllerManager.securityContext | nindent 8 }}
       serviceAccountName: {{ .Values.controllerManager.serviceAccountName }}
@@ -250,12 +215,4 @@ spec:
           csi:
             driver: "csi.spiffe.io"
             readOnly: true
-        {{- end }}
-        {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
-        - name: spiffe-helper-config
-          configMap:
-            name: operator-spiffe-helper-config
-        - name: jwt-svid
-          emptyDir:
-            medium: Memory
         {{- end }}
