@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
@@ -88,6 +89,16 @@ type ClientRegistrationReconciler struct {
 	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/rossoctl-operator-system/sa/...).
 	// Only used when UseSpiffeAuth is true.
 	OperatorClientID string
+
+	// keycloakIssuerCache caches Keycloak issuer URLs by (keycloakURL, realm) to avoid
+	// OIDC discovery HTTP requests on every reconcile. The issuer is stable per realm.
+	keycloakIssuerCache sync.Map // map[string]string
+
+	// workloadAPIClientMu protects workloadAPIClient initialization
+	workloadAPIClientMu sync.Mutex
+	// workloadAPIClient is a reused connection to the SPIRE Workload API to avoid
+	// opening a new gRPC connection on every JWT-SVID fetch. Lazily initialized.
+	workloadAPIClient *workloadapi.Client
 
 	// Recorder emits Kubernetes Events to surface configuration issues visible in kubectl describe.
 	Recorder record.EventRecorder
@@ -631,17 +642,20 @@ func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 
 // fetchJWTSVID fetches a JWT-SVID from the SPIRE Workload API for the given audience.
 // Returns the JWT token as a string or an error if fetching fails.
+// Reuses a long-lived workloadapi.Client to avoid gRPC connection churn on frequent reconciles.
 func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audience string) (string, error) {
-	client, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
-	if err != nil {
-		return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
-	}
-	defer func() {
-		if closeErr := client.Close(); closeErr != nil {
-			// Log close error but don't override the function's return error
-			ctrl.Log.WithName("fetchJWTSVID").Error(closeErr, "failed to close SPIFFE Workload API client")
+	// Lazily initialize the workloadapi.Client
+	r.workloadAPIClientMu.Lock()
+	if r.workloadAPIClient == nil {
+		client, err := workloadapi.New(ctx, workloadapi.WithAddr(r.SpiffeSocket))
+		if err != nil {
+			r.workloadAPIClientMu.Unlock()
+			return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
 		}
-	}()
+		r.workloadAPIClient = client
+	}
+	client := r.workloadAPIClient
+	r.workloadAPIClientMu.Unlock()
 
 	svid, err := client.FetchJWTSVID(ctx, jwtsvid.Params{
 		Audience: audience,
@@ -656,7 +670,14 @@ func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audienc
 // getKeycloakIssuer queries the Keycloak OIDC discovery endpoint to get the authoritative
 // issuer URL. This is necessary because the issuer may be a public URL (e.g., keycloak.localtest.me)
 // while the KeycloakURL in authbridge-config is the in-cluster service address.
+// Results are cached as the issuer is stable per realm.
 func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, keycloakURL, realm string) (string, error) {
+	// Check cache first
+	cacheKey := keycloakURL + ":" + realm
+	if cached, ok := r.keycloakIssuerCache.Load(cacheKey); ok {
+		return cached.(string), nil
+	}
+
 	discoveryURL := strings.TrimSuffix(keycloakURL, "/") + "/realms/" + realm + "/.well-known/openid-configuration"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
@@ -689,6 +710,9 @@ func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, ke
 	if config.Issuer == "" {
 		return "", fmt.Errorf("OIDC discovery response missing issuer field")
 	}
+
+	// Cache the issuer for future reconciles
+	r.keycloakIssuerCache.Store(cacheKey, config.Issuer)
 
 	return config.Issuer, nil
 }

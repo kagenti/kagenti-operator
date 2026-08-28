@@ -205,8 +205,6 @@ spiffe:
   enabled: false
   operatorAuth:
     enabled: false
-    # Path to JWT-SVID file written by spiffe-helper sidecar
-    jwtSVIDPath: "/opt/jwt_svid.token"
 
 # Feature gates — highest-priority layer in the injection precedence chain.
 # Set globalEnabled to false to disable ALL sidecar injection (kill switch).

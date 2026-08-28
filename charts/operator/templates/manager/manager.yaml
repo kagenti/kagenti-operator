@@ -180,12 +180,10 @@ spec:
               mountPath: /tmp/k8s-metrics-server/metrics-certs
               readOnly: true
             {{- end }}
-            {{- if .Values.verifiedFetch.enabled }}
+            {{- if or .Values.verifiedFetch.enabled (and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled) }}
             - name: spiffe-workload-api
               mountPath: /spiffe-workload-api
               readOnly: true
-            {{- end }}
-            {{- if and .Values.spiffe .Values.spiffe.enabled .Values.spiffe.operatorAuth .Values.spiffe.operatorAuth.enabled }}
             {{- end }}
       securityContext:
         {{- toYaml .Values.controllerManager.securityContext | nindent 8 }}
