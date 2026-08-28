@@ -135,7 +135,6 @@ func main() {
 	var credentialWaitTimeout string
 	var enableAuthbridgeConfig bool
 	var useSpiffeAuth bool
-	var jwtSVIDPath string
 	var operatorClientID string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
@@ -212,8 +211,6 @@ func main() {
 		"Reconcile authbridge-config ConfigMap in namespaces labeled rossoctl-enabled=true")
 	flag.BoolVar(&useSpiffeAuth, "use-spiffe-auth", false,
 		"Use JWT-SVID authentication for Keycloak client registration instead of admin credentials")
-	flag.StringVar(&jwtSVIDPath, "jwt-svid-path", "/opt/jwt_svid.token",
-		"Path to JWT-SVID file written by spiffe-helper sidecar (used when --use-spiffe-auth=true)")
 	flag.StringVar(&operatorClientID, "operator-client-id", "",
 		"Operator SPIFFE ID (e.g. spiffe://<domain>/ns/<ns>/sa/<sa>), used when --use-spiffe-auth=true")
 
@@ -711,7 +708,7 @@ func main() {
 			SpireTrustDomain:             spireTrustDomain,
 			KeycloakAdminTokenCache:      &keycloak.CachedAdminTokenProvider{},
 			UseSpiffeAuth:                useSpiffeAuth,
-			JWTSVIDPath:                  jwtSVIDPath,
+			SpiffeSocket:                 verifiedFetchSpiffeSocket,
 			OperatorClientID:             operatorClientID,
 			Recorder:                     mgr.GetEventRecorderFor("clientregistration"), //nolint:staticcheck
 		}).SetupWithManager(mgr); err != nil {

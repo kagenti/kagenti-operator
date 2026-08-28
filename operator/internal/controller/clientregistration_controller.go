@@ -9,12 +9,16 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/spiffe/go-spiffe/v2/svid/jwtsvid"
+	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -78,13 +82,28 @@ type ClientRegistrationReconciler struct {
 	// the Admin API with manage-clients role. When false, uses admin credentials.
 	UseSpiffeAuth bool
 
-	// JWTSVIDPath is the file path to read the operator's JWT-SVID from.
-	// Only used when UseSpiffeAuth is true. Default: /opt/jwt_svid.token
-	JWTSVIDPath string
+	// SpiffeSocket is the path to the SPIFFE Workload API socket (e.g., unix:///run/spire/sockets/agent.sock).
+	// Only used when UseSpiffeAuth is true. Used to fetch JWT-SVIDs via go-spiffe SDK.
+	SpiffeSocket string
 
 	// OperatorClientID is the operator's SPIFFE ID (e.g., spiffe://localtest.me/ns/rossoctl-operator-system/sa/...).
 	// Only used when UseSpiffeAuth is true.
 	OperatorClientID string
+
+	// keycloakIssuerCache caches Keycloak issuer URLs by (keycloakURL, realm) to avoid
+	// OIDC discovery HTTP requests on every reconcile. The issuer is stable per realm.
+	keycloakIssuerCache sync.Map // map[string]string
+
+	// httpClient is reused for OIDC discovery requests to avoid allocating a new client
+	// on every getKeycloakIssuer call. In practice this is only called once per realm
+	// thanks to keycloakIssuerCache, but reusing the client makes the intent clearer.
+	httpClient *http.Client
+
+	// workloadAPIClientMu protects workloadAPIClient initialization
+	workloadAPIClientMu sync.Mutex
+	// workloadAPIClient is a reused connection to the SPIRE Workload API to avoid
+	// opening a new gRPC connection on every JWT-SVID fetch. Lazily initialized.
+	workloadAPIClient *workloadapi.Client
 
 	// Recorder emits Kubernetes Events to surface configuration issues visible in kubectl describe.
 	Recorder record.EventRecorder
@@ -275,36 +294,43 @@ func (r *ClientRegistrationReconciler) reconcileOne(
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		jwtSVIDPath := r.JWTSVIDPath
-		if jwtSVIDPath == "" {
-			jwtSVIDPath = "/opt/jwt_svid.token"
-		}
-
-		// Path traversal protection: only allow reading from designated directories
-		cleanPath := filepath.Clean(jwtSVIDPath)
-		if !strings.HasPrefix(cleanPath, "/opt/") && !strings.HasPrefix(cleanPath, "/var/run/secrets/") {
-			err := fmt.Errorf("JWT-SVID path %q outside allowed directories (/opt/, /var/run/secrets/)", jwtSVIDPath)
-			logger.Error(err, "invalid JWT-SVID path")
+		if r.SpiffeSocket == "" {
+			err := fmt.Errorf("SpiffeSocket is required when UseSpiffeAuth=true")
+			logger.Error(err, "missing SPIFFE socket path")
 			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "InvalidJWTSVIDPath",
-					"JWT-SVID path %q rejected: must be under /opt/ or /var/run/secrets/", jwtSVIDPath)
+				r.Recorder.Event(owner, corev1.EventTypeWarning, "SpiffeSocketMissing",
+					"UseSpiffeAuth=true but SpiffeSocket is empty. Check operator configuration.")
 			}
-			return ctrl.Result{}, err // fail permanently on config error
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
-		jwtSVID, err := os.ReadFile(cleanPath)
+		// Fetch JWT-SVID from SPIRE via Workload API
+		// Per RFC 7523 and Keycloak SPIFFE authentication: the JWT audience must match
+		// Keycloak's realm issuer URL exactly. Query the OIDC discovery endpoint to get
+		// the authoritative issuer value, since it may differ from the in-cluster service URL.
+		realmIssuer, err := r.getKeycloakIssuer(ctx, ab.KeycloakURL, ab.KeycloakRealm)
 		if err != nil {
-			logger.Error(err, "read JWT-SVID failed", "path", cleanPath)
+			logger.Error(err, "Failed to get Keycloak issuer URL")
 			if r.Recorder != nil {
-				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDReadFailed",
-					"Failed to read JWT-SVID from %s: %v. Check spiffe-helper sidecar configuration.", cleanPath, err)
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "IssuerLookupFailed",
+					"Failed to query Keycloak OIDC discovery: %v", err)
+			}
+			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		}
+
+		jwtSVID, err := r.fetchJWTSVID(ctx, realmIssuer)
+		if err != nil {
+			logger.Error(err, "JWT-SVID fetch failed")
+			if r.Recorder != nil {
+				r.Recorder.Eventf(owner, corev1.EventTypeWarning, "JWTSVIDFetchFailed",
+					"Failed to fetch JWT-SVID from SPIRE: %v", err)
 			}
 			return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 		}
 
 		// WARNING: JWT-SVID is a bearer token - must never appear in logs or error messages
 		// to prevent token exposure. All code paths must handle jwtSVID as sensitive data.
-		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, string(jwtSVID))
+		token, err = kc.JWTSVIDGrantToken(ctx, ab.KeycloakRealm, r.OperatorClientID, jwtSVID)
 		if err != nil {
 			logger.Error(err, "Keycloak JWT-SVID authentication failed")
 			if r.Recorder != nil {
@@ -596,6 +622,9 @@ func clientRegistrationWorkloadPredicate(obj client.Object) bool {
 // SetupWithManager registers the controller. injectTools is resolved at reconcile time from cluster
 // feature gates; the predicate uses injectTools=true so tool workloads are not dropped before gates load.
 func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Initialize reusable HTTP client for OIDC discovery
+	r.httpClient = &http.Client{Timeout: 10 * time.Second}
+
 	pred := predicate.NewPredicateFuncs(clientRegistrationWorkloadPredicate)
 	b := ctrl.NewControllerManagedBy(mgr).
 		Named("clientregistration").
@@ -617,4 +646,97 @@ func (r *ClientRegistrationReconciler) SetupWithManager(mgr ctrl.Manager) error 
 	}
 
 	return b.Complete(r)
+}
+
+// fetchJWTSVID fetches a JWT-SVID from the SPIRE Workload API for the given audience.
+// Returns the JWT token as a string or an error if fetching fails.
+// Reuses a long-lived workloadapi.Client to avoid gRPC connection churn on frequent reconciles.
+func (r *ClientRegistrationReconciler) fetchJWTSVID(ctx context.Context, audience string) (string, error) {
+	// Lazily initialize the workloadapi.Client using double-checked locking
+	// to avoid holding the mutex during the slow gRPC dial.
+	r.workloadAPIClientMu.Lock()
+	if r.workloadAPIClient == nil {
+		r.workloadAPIClientMu.Unlock()
+		// Dial with background context so the cached client outlives any single reconcile
+		dialCtx := context.Background()
+		newClient, err := workloadapi.New(dialCtx, workloadapi.WithAddr(r.SpiffeSocket))
+		if err != nil {
+			return "", fmt.Errorf("failed to create SPIFFE Workload API client: %w", err)
+		}
+		// Re-acquire lock to store (another goroutine may have initialized in the meantime)
+		r.workloadAPIClientMu.Lock()
+		if r.workloadAPIClient == nil {
+			r.workloadAPIClient = newClient
+		} else {
+			// Another goroutine won the race, close our client
+			_ = newClient.Close()
+		}
+	}
+	client := r.workloadAPIClient
+	r.workloadAPIClientMu.Unlock()
+
+	svid, err := client.FetchJWTSVID(ctx, jwtsvid.Params{
+		Audience: audience,
+	})
+	if err != nil {
+		// Clear the cached client on fetch error (likely disconnected) so next reconcile re-dials
+		r.workloadAPIClientMu.Lock()
+		if r.workloadAPIClient == client {
+			_ = r.workloadAPIClient.Close()
+			r.workloadAPIClient = nil
+		}
+		r.workloadAPIClientMu.Unlock()
+		return "", fmt.Errorf("failed to fetch JWT-SVID: %w", err)
+	}
+
+	return svid.Marshal(), nil
+}
+
+// getKeycloakIssuer queries the Keycloak OIDC discovery endpoint to get the authoritative
+// issuer URL. This is necessary because the issuer may be a public URL (e.g., keycloak.localtest.me)
+// while the KeycloakURL in authbridge-config is the in-cluster service address.
+// Results are cached as the issuer is stable per realm.
+func (r *ClientRegistrationReconciler) getKeycloakIssuer(ctx context.Context, keycloakURL, realm string) (string, error) {
+	// Check cache first
+	cacheKey := keycloakURL + ":" + realm
+	if cached, ok := r.keycloakIssuerCache.Load(cacheKey); ok {
+		return cached.(string), nil
+	}
+
+	discoveryURL := strings.TrimSuffix(keycloakURL, "/") + "/realms/" + realm + "/.well-known/openid-configuration"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create OIDC discovery request: %w", err)
+	}
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to query OIDC discovery endpoint: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			ctrl.Log.WithName("getKeycloakIssuer").Error(closeErr, "failed to close response body")
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("OIDC discovery returned status %d", resp.StatusCode)
+	}
+
+	var config struct {
+		Issuer string `json:"issuer"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
+		return "", fmt.Errorf("failed to decode OIDC discovery response: %w", err)
+	}
+
+	if config.Issuer == "" {
+		return "", fmt.Errorf("OIDC discovery response missing issuer field")
+	}
+
+	// Cache the issuer for future reconciles
+	r.keycloakIssuerCache.Store(cacheKey, config.Issuer)
+
+	return config.Issuer, nil
 }
