@@ -55,6 +55,9 @@ func (v *AgentRuntimeValidator) ValidateCreate(ctx context.Context, rt *agentv1a
 	if err := checkTLSBridgeCompatibleWithMode(rt); err != nil {
 		return nil, err
 	}
+	if err := checkPluginPresetValid(rt); err != nil {
+		return nil, err
+	}
 	return nil, nil
 }
 
@@ -68,6 +71,9 @@ func (v *AgentRuntimeValidator) ValidateUpdate(ctx context.Context, _ *agentv1al
 		return nil, err
 	}
 	if err := checkTLSBridgeCompatibleWithMode(rt); err != nil {
+		return nil, err
+	}
+	if err := checkPluginPresetValid(rt); err != nil {
 		return nil, err
 	}
 
@@ -123,6 +129,18 @@ func checkTLSBridgeCompatibleWithMode(rt *agentv1alpha1.AgentRuntime) error {
 			rt.Spec.AuthBridgeMode,
 		)
 	}
+}
+
+// checkPluginPresetValid rejects an AgentRuntime whose spec.plugins override
+// tokens are malformed (unknown plugin name or invalid policy). The token-format
+// check lives in the api/v1alpha1 package (AgentRuntimeSpec.ValidatePlugins) so
+// both the webhook and the injector's pipeline renderer share one plugin/policy
+// vocabulary without an import cycle. When spec.pluginPreset is unset the check
+// is a no-op — Plugins is only honored alongside a preset. The token-exchange/
+// token-broker mutex is enforced at render time (injector), where preset
+// membership is resolved.
+func checkPluginPresetValid(rt *agentv1alpha1.AgentRuntime) error {
+	return rt.Spec.ValidatePlugins()
 }
 
 // checkDuplicateTargetRef rejects creation/update if another AgentRuntime already

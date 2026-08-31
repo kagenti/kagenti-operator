@@ -336,3 +336,28 @@ defaults:
       jwt_svids = [{jwt_audience="http://keycloak.localtest.me:8080/realms/rossoctl", jwt_svid_file_name="/opt/jwt_svid.token"}]
       jwt_svid_file_mode = 0644
       include_federated_domains = true
+
+  # IBAC (intent-based access control) judge settings. The operator stamps
+  # these into the ibac plugin's config when a workload selects an AuthBridge
+  # plugin preset that includes ibac (spec.pluginPreset: ibac-only | full).
+  # The ibac plugin calls this OpenAI-compatible "judge" LLM to decide whether
+  # an outbound action matches the user's stated intent.
+  #
+  # judgeEndpoint/judgeModel MUST be set before an ibac-bearing preset can
+  # enforce — an ibac plugin rendered with an empty judge_endpoint fails the
+  # sidecar's config reload. When they are empty the operator still emits the
+  # plugin (so the pipeline shape is correct) but logs a warning at admission.
+  # The judge system prompt is baked into the operator binary, not sourced here.
+  ibac:
+    # OpenAI-compatible base URL of the judge LLM, e.g.
+    # "http://litellm.rossoctl-system.svc.cluster.local:4000".
+    judgeEndpoint: ""
+    # Model id the judge call uses, e.g. "llama3.2:3b".
+    judgeModel: ""
+    # Bounds the judge call in milliseconds. Mirrors the harness default (15000).
+    timeoutMs: 15000
+    # Optional: the agent's own LLM host, so the judge can distinguish agent
+    # LLM traffic from tool traffic. Omitted from the plugin config when empty.
+    agentLlmHost: ""
+    # Optional: bearer token for the judge endpoint. Omitted when empty.
+    judgeBearer: ""

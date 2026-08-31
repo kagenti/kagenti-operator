@@ -117,5 +117,12 @@ func CompiledDefaults() *PlatformConfig {
 			LogLevel:      "info",
 			EnableMetrics: true,
 		},
+		// IBAC judge defaults. JudgeEndpoint/JudgeModel are intentionally empty —
+		// they must be configured (Helm defaults.ibac.*) before an ibac-bearing
+		// preset (ibac-only / full) can enforce. TimeoutMS mirrors the harness
+		// default (authbridge/apply-pipeline.sh IBAC_TIMEOUT_MS default 15000).
+		IBAC: IBACConfig{
+			TimeoutMS: 15000,
+		},
 	}
 }

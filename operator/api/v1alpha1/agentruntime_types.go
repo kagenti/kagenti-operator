@@ -17,6 +17,9 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"fmt"
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -163,6 +166,48 @@ type AgentRuntimeSpec struct {
 	//
 	// +optional
 	Auth *AuthConfig `json:"auth,omitempty"`
+
+	// PluginPreset selects an AuthBridge layer-3 plugin-pipeline preset for this
+	// workload's per-agent authbridge-config-<name> ConfigMap. When set, the
+	// admission webhook renders the full canonical pipeline (all supported plugins
+	// in fixed order; unselected ones emitted with on_error: off) instead of the
+	// default two-plugin (jwt-validation + token-exchange) synthesis.
+	//
+	// Presets (membership; every preset seeds its plugins at policy "enforce"):
+	//   auth-only  inbound: jwt-validation            outbound: token-exchange
+	//   ibac-only  inbound: a2a-parser                outbound: inference-parser, mcp-parser, ibac
+	//   full       inbound: a2a-parser, jwt-validation outbound: token-exchange,
+	//              inference-parser, mcp-parser, ibac
+	//
+	// Only honored on the proxy-sidecar / lite paths (the plugin pipeline lives in
+	// the per-agent ConfigMap those modes mount). Requires the AuthBridge sidecar to
+	// be injected.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=auth-only;ibac-only;full
+	PluginPreset string `json:"pluginPreset,omitempty"`
+
+	// Plugins carries per-plugin policy overrides layered on top of PluginPreset, as
+	// "NAME:POLICY" tokens (e.g. "ibac:observe"). POLICY is one of enforce|observe|off
+	// and maps to the plugin entry's on_error field: enforce omits on_error (the
+	// framework default), observe sets on_error: observe, off sets on_error: off.
+	// A plugin named here that isn't part of the preset is added at the given policy.
+	// Ignored when PluginPreset is unset.
+	//
+	// token-exchange and token-broker are mutually exclusive on the outbound chain;
+	// a spec that activates both is rejected by admission.
+	//
+	// +optional
+	Plugins []string `json:"plugins,omitempty"`
+
+	// OnError sets the chain-default policy applied to every selected plugin that
+	// has no explicit per-plugin override in Plugins. enforce is the framework
+	// default (on_error omitted); observe/off are emitted explicitly. Ignored when
+	// PluginPreset is unset.
+	//
+	// +optional
+	// +kubebuilder:validation:Enum=enforce;observe;off
+	OnError string `json:"onError,omitempty"`
 }
 
 // AuthConfig defines authentication configuration for an agent or tool.
@@ -207,6 +252,53 @@ type RouteMatch struct {
 	//
 	// +optional
 	HostRegex string `json:"hostRegex,omitempty"`
+}
+
+// SupportedAuthBridgePlugins is the set of plugin names accepted in
+// AgentRuntimeSpec.Plugins override tokens. Kept in this leaf API package so
+// both the validating webhook and the injector's pipeline renderer reference
+// one list without an import cycle. Keep in sync with the injector's canonical
+// inbound/outbound order lists (internal/webhook/injector/preset_pipeline.go).
+var SupportedAuthBridgePlugins = map[string]bool{
+	"a2a-parser":       true,
+	"jwt-validation":   true,
+	"token-exchange":   true,
+	"token-broker":     true,
+	"inference-parser": true,
+	"mcp-parser":       true,
+	"ibac":             true,
+}
+
+// supportedAuthBridgePolicies is the legal per-plugin / chain-default policy set.
+var supportedAuthBridgePolicies = map[string]bool{"enforce": true, "observe": true, "off": true}
+
+// ValidatePlugins checks the spec.plugins override tokens ("NAME:POLICY") for a
+// known plugin name and a valid policy. No-op when pluginPreset is unset (the
+// preset gates whether Plugins is honored). The token-exchange/token-broker
+// mutex is enforced at render time, where preset membership is resolved.
+func (s *AgentRuntimeSpec) ValidatePlugins() error {
+	if s.PluginPreset == "" {
+		return nil
+	}
+	for _, tok := range s.Plugins {
+		t := strings.TrimSpace(tok)
+		if t == "" {
+			return fmt.Errorf("empty plugin override token in spec.plugins")
+		}
+		name := t
+		policy := "enforce"
+		if idx := strings.Index(t, ":"); idx >= 0 {
+			name = strings.TrimSpace(t[:idx])
+			policy = strings.TrimSpace(t[idx+1:])
+		}
+		if !SupportedAuthBridgePlugins[name] {
+			return fmt.Errorf("unknown plugin %q in spec.plugins token %q", name, tok)
+		}
+		if !supportedAuthBridgePolicies[policy] {
+			return fmt.Errorf("invalid policy %q in spec.plugins token %q (want enforce, observe, or off)", policy, tok)
+		}
+	}
+	return nil
 }
 
 // CardStatus holds the fetched A2A agent card data along with fetch metadata
